@@ -90,7 +90,8 @@
         <div>
           <label for="eanInput">Cerca per EAN</label>
           <input id="eanInput" type="text" placeholder="Esempio: 8391602940309" autofocus>
-          
+          <div class="tiny" id="hint">Prima carica il CSV o premi “Usa dati salvati”.</div>
+          <div class="chips" id="chips"></div>
         </div>
         <div style="flex:0 0 auto; display:flex; gap:10px; align-items:flex-end;">
           <button id="btnSearch">Cerca</button>
@@ -166,8 +167,8 @@
     fileInfo: document.getElementById('fileInfo'),
     footerMsg: document.getElementById('footerMsg'),
     btnExport: document.getElementById('btnExport'),
-    hint: null, // rimosso
-    chips: null, // rimosso
+    hint: document.getElementById('hint'),
+    chips: document.getElementById('chips'),
     banner: document.getElementById('stateBanner'),
   };
 
@@ -225,11 +226,11 @@
         } else { field += ch; }
       } else {
         if (ch === '"'){ inQuotes = true; }
-        else if (ch === delimiter){ row.push(normalizeCell(field)); field=""); } catch(_){}
-        else if (ch === "\n"){ row.push(normalizeCell(field)); rows.push(row); row=[]; field=""); } catch(_){}
+        else if (ch === delimiter){ row.push(normalizeCell(field)); field=""; }
+        else if (ch === "\n"){ row.push(normalizeCell(field)); rows.push(row); row=[]; field=""; }
         else if (ch === "\r"){
           if (text[i+1] === "\n"){ row.push(normalizeCell(field)); rows.push(row); row=[]; field=""; i++; }
-          else { row.push(normalizeCell(field)); rows.push(row); row=[]; field=""); } catch(_){}
+          else { row.push(normalizeCell(field)); rows.push(row); row=[]; field=""; }
         } else { field += ch; }
       }
     }
@@ -313,8 +314,22 @@
   }
 
 
-  function renderChips(){ /* disabilitato */ }
-
+  function renderChips(){
+    els.chips.innerHTML = "";
+    const n = Math.min(5, STATE.uniqueEans.length);
+    for (let i=0;i<n;i++){
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.textContent = STATE.uniqueEans[i];
+      chip.addEventListener('click', () => { els.eanInput.value = chip.textContent; doSearch(); });
+      els.chips.appendChild(chip);
+    }
+    if (n === 0){
+      const t = document.createElement("div");
+      t.className="tiny"; t.textContent="(Nessun EAN rilevato nella colonna selezionata)";
+      els.chips.appendChild(t);
+    }
+  }
 
   function renderTable(rows){
     const headers = STATE.headers;
@@ -401,7 +416,7 @@
     }
 if (STATE.rows.length === 0){
       alert("Prima carica un CSV (o premi 'Usa dati salvati').");
-      try { els.hint && (els.hint.textContent = "Carica il CSV per attivare la ricerca sui dati.";
+      els.hint.textContent = "Carica il CSV per attivare la ricerca sui dati.";
       els.banner.textContent = "Stato: nessun dato caricato.";
       return;
     }
@@ -526,8 +541,8 @@ async function readFileAsArrayBuffer(file) {
     fillEanColumnSelect();
     fillArticleColumnSelect();
     buildIndex(STATE.eanIdx);
-    // renderChips(); // disabilitato
-    try { els.hint && (els.hint.textContent = "Dati caricati. Ora puoi cercare.";
+    renderChips();
+    els.hint.textContent = "Dati caricati. Ora puoi cercare.";
     els.banner.textContent = `Stato: caricato "${STATE.filename}" • Righe: ${STATE.rows.length} • Colonne: ${STATE.headers.length}`;
   }
 
@@ -550,8 +565,8 @@ async function readFileAsArrayBuffer(file) {
       if (els.persist.checked){
         try { localStorage.setItem(LS_KEY, text);
           els.footerMsg.innerHTML = "✅ Dati salvati in locale (memoria del browser).";
-        } catch { els.footerMsg.innerHTML = "⚠️ Impossibile salvare in locale (spazio insufficiente)."); } catch(_){}
-      } else { els.footerMsg.textContent = ""); } catch(_){}
+        } catch { els.footerMsg.innerHTML = "⚠️ Impossibile salvare in locale (spazio insufficiente)."; }
+      } else { els.footerMsg.textContent = ""; }
     } catch (err){ alert("Errore nel caricamento del file: " + err.message); }
   }
 
@@ -590,18 +605,18 @@ async function readFileAsArrayBuffer(file) {
     try { if (els.eanInput) { els.eanInput.value = ""; els.eanInput.blur(); } } catch(_){}
 
     // Risultati e messaggi
-    try { if (els.grid) els.grid.innerHTML = ""); } catch(_){} catch(_){}
-    try { if (els.resultsCard) els.resultsCard.style.display = "none"); } catch(_){} catch(_){}
-    try { if (els.matchInfo) els.matchInfo.textContent = ""); } catch(_){} catch(_){}
-    try { if (els.fileInfo) els.fileInfo.textContent = ""); } catch(_){} catch(_){}
-    try { if (els.footerMsg) els.footerMsg.textContent = ""); } catch(_){} catch(_){}
-    try { if (els.hint) try { els.hint && (els.hint.textContent = "Prima carica il CSV o premi “Usa dati salvati”."); } catch(_){} catch(_){}
+    try { if (els.grid) els.grid.innerHTML = ""; } catch(_){}
+    try { if (els.resultsCard) els.resultsCard.style.display = "none"; } catch(_){}
+    try { if (els.matchInfo) els.matchInfo.textContent = ""; } catch(_){}
+    try { if (els.fileInfo) els.fileInfo.textContent = ""; } catch(_){}
+    try { if (els.footerMsg) els.footerMsg.textContent = ""; } catch(_){}
+    try { if (els.hint) els.hint.textContent = "Prima carica il CSV o premi “Usa dati salvati”."; } catch(_){}
 
     // Chip EAN frequenti
-    try { if (els.chips) els.chips.innerHTML = ""); } catch(_){} catch(_){}
+    try { if (els.chips) els.chips.innerHTML = ""; } catch(_){}
 
     // Stato scanner
-    try { const s = document.getElementById('scanStatus'); if (s) s.textContent = ""); } catch(_){} catch(_){}
+    try { const s = document.getElementById('scanStatus'); if (s) s.textContent = ""; } catch(_){}
 
     // Reset delle colonne a quelle stimate, se i dati sono presenti
     try {
@@ -631,19 +646,19 @@ async function readFileAsArrayBuffer(file) {
   // Events
   els.articleColumn?.addEventListener('change', () => { STATE.articleIdx = Number(els.articleColumn.value||0); renderStats(); });
   els.csvFile.addEventListener('change', (e) => { const f=e.target.files?.[0]; if (f) handleFile(f); });
-  els.eanColumn.addEventListener('change', () => { STATE.eanIdx = parseInt(els.eanColumn.value,10)||0; buildIndex(STATE.eanIdx); // renderChips(); // disabilitato if (els.resultsCard.style.display!=="none") doSearch(); });
+  els.eanColumn.addEventListener('change', () => { STATE.eanIdx = parseInt(els.eanColumn.value,10)||0; buildIndex(STATE.eanIdx); renderChips(); if (els.resultsCard.style.display!=="none") doSearch(); });
   els.btnSearch.addEventListener('click', doSearch);
   els.eanInput.addEventListener('keydown', (e) => { if (e.key === "Enter") doSearch(); });
   els.btnClear.addEventListener('click', () => { resetAll(); return; /* below kept for reference but no-op */
 
-    try { if (els.eanInput) els.eanInput.value = ""); } catch(_){} catch(_){}
-    try { if (els.grid) els.grid.innerHTML = ""); } catch(_){} catch(_){}
-    try { if (els.matchInfo) els.matchInfo.textContent = ""); } catch(_){} catch(_){}
-    try { if (els.fileInfo) els.fileInfo.textContent = ""); } catch(_){} catch(_){}
-    try { if (els.footerMsg) els.footerMsg.textContent = ""); } catch(_){} catch(_){}
-    try { if (els.resultsCard) els.resultsCard.style.display = "none"); } catch(_){} catch(_){}
+    try { if (els.eanInput) els.eanInput.value = ""; } catch(_){}
+    try { if (els.grid) els.grid.innerHTML = ""; } catch(_){}
+    try { if (els.matchInfo) els.matchInfo.textContent = ""; } catch(_){}
+    try { if (els.fileInfo) els.fileInfo.textContent = ""; } catch(_){}
+    try { if (els.footerMsg) els.footerMsg.textContent = ""; } catch(_){}
+    try { if (els.resultsCard) els.resultsCard.style.display = "none"; } catch(_){}
     // se c'è uno stato visivo della scansione, azzeralo
-    try { const s = document.getElementById('scanStatus'); if (s) s.textContent = ""); } catch(_){} catch(_){}
+    try { const s = document.getElementById('scanStatus'); if (s) s.textContent = ""; } catch(_){}
   });
   els.btnShowAll.addEventListener('click', () => { if (STATE.rows.length===0){ alert("Nessun dato."); return;} showResults(STATE.rows.slice(0,500), false, ""); });
   els.btnLoadSaved.addEventListener('click', loadSaved);
