@@ -574,13 +574,135 @@ if (STATE.rows.length === 0){
   }
 
   // === Core: EAN -> CODICE_ARTICOLO -> base (drop last 3) ===
-  function performArticleSearchFromEAN(eanDigits){
-    if (window.__autoSearchBusy) return;
-    window.__autoSearchBusy = true;
-    const finalize = () => { setTimeout(() => { window.__autoSearchBusy = false; }, 700); };
+  
+function performArticleSearchFromEAN(eanDigits){
+  // Lock di sessione: esegui una sola volta per scansione
+  if (window.__autoSearchBusy) return;
+  window.__autoSearchBusy = true;
 
-    try { stopScan(); } catch(_){}
+  // Chiudi la camera subito per evitare risultati multipli
+  try { stopScan(); } catch(_){}
 
+  function triggerSearch(){
+    try { if (typeof window.doSearch === 'function') return window.doSearch(); } catch(_){}
+    try { if (typeof doSearch === 'function') return doSearch(); } catch(_){}
+    const btn = document.getElementById('btnSearch');
+    if (btn && typeof btn.click === 'function') btn.click();
+  }
+
+  const _slug = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
+  const _digits = s => String(s||'').replace(/\D+/g,'');
+  const _dropLast3 = s => { const t = String(s||'').trim(); return t.length > 3 ? t.slice(0, -3) : t; };
+
+  // Writer sicuro (scrive solo se cambia davvero, e solo una volta)
+  function writeAndSearch(baseCode){
+    const input = document.getElementById('eanInput');
+    if (!input) return;
+    const prevProg = window.__lastProgrammaticValue || "";
+    if (baseCode && baseCode !== prevProg){
+      input.value = baseCode;
+      window.__lastProgrammaticValue = baseCode;
+    }
+    triggerSearch();
+  }
+
+  // Core lookup (riutilizzabile su retry)
+  function tryLookupAndSearch(){
+    try {
+      const D = window.STATE || window._STATE || {};
+      const headers = D.headers || D.header || [];
+      const rows = D.rows || D.data || [];
+      let eanIdx = (typeof D.eanIndex === 'number') ? D.eanIndex : (typeof D.eanCol === 'number' ? D.eanCol : -1);
+      let artIdx = -1;
+
+      if (Array.isArray(headers) && headers.length){
+        const slugs = headers.map(_slug);
+        if (eanIdx < 0){
+          const keys = ['EAN','BARCODE','GTIN','UPC'];
+          for (let i=0;i<slugs.length;i++){ if (keys.some(k => slugs[i].includes(k))) { eanIdx = i; break; } }
+          if (eanIdx < 0) eanIdx = 0;
+        }
+        for (let i=0;i<slugs.length;i++){
+          if (slugs[i] === 'CODICEARTICOLO' || (slugs[i].includes('CODICE') && slugs[i].includes('ARTICOLO'))){ artIdx = i; break; }
+        }
+      }
+
+      if (eanIdx >= 0 && artIdx >= 0 && Array.isArray(rows) && rows.length){
+        const target = String(eanDigits);
+        let foundCode = null;
+
+        // Mappa rapida se presente
+        const maps = [D.eanMap, D.byEAN, D.index, D.map];
+        let rowIdxs = null;
+        for (const m of maps){
+          if (m && typeof m.get === 'function'){
+            rowIdxs = m.get(_digits(target)) || m.get(target) || null;
+            if (typeof rowIdxs === 'number') rowIdxs = [rowIdxs];
+            if (Array.isArray(rowIdxs) && rowIdxs.length) break;
+          }
+        }
+        if (Array.isArray(rowIdxs) && rowIdxs.length){
+          const r = rowIdxs[0];
+          const row = rows[r] || [];
+          foundCode = String(row[artIdx] ?? '').trim();
+        } else {
+          // Scansione lineare
+          for (let r=0;r<rows.length;r++){
+            const row = rows[r] || [];
+            const cellEAN = _digits(row[eanIdx] ?? '');
+            if (cellEAN === target){
+              foundCode = String(row[artIdx] ?? '').trim();
+              if (foundCode) break;
+            }
+          }
+        }
+
+        if (foundCode){
+          writeAndSearch(_dropLast3(foundCode));
+          return true;
+        }
+      }
+    } catch(e){ console.warn("Article lookup via STATE failed:", e); }
+
+    // DOM quick check (se tabella già renderizzata)
+    try {
+      const table = document.querySelector('table');
+      if (table){
+        const ths = Array.from(table.querySelectorAll('thead th'));
+        const headersText = ths.map(th => th.textContent || '');
+        let artCol = -1;
+        for (let i=0;i<headersText.length;i++){
+          const s = _slug(headersText[i]);
+          if (s === 'CODICEARTICOLO' || (s.includes('CODICE') && s.includes('ARTICOLO'))){ artCol = i; break; }
+        }
+        const firstRow = table.querySelector('tbody tr');
+        if (artCol >= 0 && firstRow){
+          const tds = firstRow.querySelectorAll('td');
+          if (tds && tds.length > artCol){
+            const artCode = (tds[artCol].textContent || '').trim();
+            if (artCode){
+              writeAndSearch(_dropLast3(artCode));
+              return true;
+            }
+          }
+        }
+      }
+    } catch(e){ console.warn("DOM quick fallback failed:", e); }
+
+    return false;
+  }
+
+  // Primo tentativo immediato
+  if (tryLookupAndSearch()) return;
+
+  // Un solo retry ritardato (es. dati che arrivano a breve): evita loop
+  setTimeout(() => {
+    if (!tryLookupAndSearch()){
+      try { if (els && els.status) els.status.textContent = "Articolo non trovato per EAN " + eanDigits + "."; } catch(_){}
+      // Non scriviamo l'EAN e non rilanciamo altre ricerche: niente alternanza/loop
+    }
+  }, 350);
+}
     // 1) Lookup in memoria (STATE)
     try {
       const D = window.STATE || window._STATE || {};
@@ -830,6 +952,9 @@ if (STATE.rows.length === 0){
 
   // --- Nativo o ZXing ---
   async function startScan(){
+    // reset lock per nuova sessione di scansione
+    try { window.__autoSearchBusy = false; } catch(_) {}
+
     openModal("Preparazione scansione…");
 
     const ua = navigator.userAgent || "";
