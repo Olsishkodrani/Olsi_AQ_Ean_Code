@@ -93,7 +93,7 @@
           <button id="btnSearch">Cerca</button>
           <button id="btnClear" class="secondary">Pulisci</button>
           <button id="btnShowAll" class="secondary">Mostra tutte</button>
-        <button id="btnScan" class="secondary" type="button" onclick="(window.__startScan||window.startScan||function(){alert(\'Scanner non inizializzato\')})()">Scansiona</button>
+        <button id="btnScan" class="secondary" type="button" onclick="(window.startScan||window.__startScan||function(){alert(\'Scanner non inizializzato\')})()">Scansiona</button>
 </div>
       </div>
 
@@ -505,9 +505,10 @@ if (STATE.rows.length === 0){
 })();
 </script>
 
-<!-- ==== Scanner barcode: single-file (iOS-ready) + overlay + lookup articolo (no flicker) ==== -->
+<!-- ==== Scanner barcode: single-file (iOS-ready) + overlay + lookup articolo (no flicker, guaranteed write) ==== -->
 <script>
 (() => {
+  // --- CSS inline ---
   const style = document.createElement('style');
   style.textContent = `
   .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:9999}
@@ -520,9 +521,11 @@ if (STATE.rows.length === 0){
   .scanViewport{position:relative}
   .scanViewport #scanVideo{display:block}
   .scanLine{position:absolute;left:4%;right:4%;top:50%;height:2px;background:rgba(255,0,0,.95);box-shadow:0 0 8px rgba(255,0,0,.8),0 0 2px rgba(0,0,0,.6);transform:translateY(-1px);pointer-events:none;border-radius:2px}
+  .stealthScan{ color: transparent !important; caret-color: transparent !important; text-shadow: none !important; }
   `;
   document.head.appendChild(style);
 
+  // --- Modal HTML ---
   const modal = document.createElement('div');
   modal.id = 'scanModal';
   modal.className = 'modal';
@@ -543,6 +546,7 @@ if (STATE.rows.length === 0){
     </div>`;
   document.body.appendChild(modal);
 
+  // --- Riferimenti ---
   const els = {
     modal,
     video: modal.querySelector('#scanVideo'),
@@ -550,6 +554,7 @@ if (STATE.rows.length === 0){
     btnClose: modal.querySelector('#btnScanClose'),
   };
 
+  // --- Stato scanner ---
   let _scanStream = null;
   let _scanning   = false;
   let _detector   = null;
@@ -568,12 +573,15 @@ if (STATE.rows.length === 0){
     if (btn && typeof btn.click === 'function') btn.click();
   }
 
+  // === Core: EAN -> CODICE_ARTICOLO -> base (drop last 3) ===
   function performArticleSearchFromEAN(eanDigits){
     if (window.__autoSearchBusy) return;
     window.__autoSearchBusy = true;
-    const finalize = () => { setTimeout(() => { window.__autoSearchBusy = false; }, 600); };
+    const finalize = () => { setTimeout(() => { window.__autoSearchBusy = false; }, 700); };
+
     try { stopScan(); } catch(_){}
 
+    // 1) Lookup in memoria (STATE)
     try {
       const D = window.STATE || window._STATE || {};
       const headers = D.headers || D.header || [];
@@ -626,7 +634,7 @@ if (STATE.rows.length === 0){
           const input = document.getElementById('eanInput');
           if (input){
             const prevProg = window.__lastProgrammaticValue || "";
-            if (base != prevProg){
+            if (base !== prevProg){
               input.value = base;
               window.__lastProgrammaticValue = base;
             }
@@ -637,6 +645,7 @@ if (STATE.rows.length === 0){
       }
     } catch(e){ console.warn("Article lookup via STATE failed:", e); }
 
+    // 2) DOM rapido: se tabella già piena
     try {
       const table = document.querySelector('table');
       if (table){
@@ -657,7 +666,7 @@ if (STATE.rows.length === 0){
               const input = document.getElementById('eanInput');
               if (input){
                 const prevProg = window.__lastProgrammaticValue || "";
-                if (base != prevProg){
+                if (base !== prevProg){
                   input.value = base;
                   window.__lastProgrammaticValue = base;
                 }
@@ -670,12 +679,65 @@ if (STATE.rows.length === 0){
       }
     } catch(e){ console.warn("DOM quick fallback failed:", e); }
 
+    // 3) Fallback STEALTH: scrivi EAN invisibile -> cerca -> leggi base -> sostituisci -> cerca
     try {
-      if (els && els.status) els.status.textContent = "Articolo non trovato per EAN " + eanDigits + ". Verifica dati/caricamento.";
-    } catch(_){}
-    finalize();
+      const input = document.getElementById('eanInput');
+      if (!input){ finalize(); return; }
+      const prev = input.value;
+
+      input.classList.add('stealthScan');
+      input.value = String(eanDigits);
+      window.__lastProgrammaticValue = input.value;
+      triggerSearch();
+
+      setTimeout(() => {
+        try{
+          const table = document.querySelector('table');
+          let base = null;
+          if (table){
+            const ths = Array.from(table.querySelectorAll('thead th'));
+            const headersText = ths.map(th => th.textContent || '');
+            let artCol = -1;
+            for (let i=0;i<headersText.length;i++){
+              const s = (headersText[i]||'').toUpperCase();
+              if (s.includes('CODICE') && s.includes('ARTICOLO')){ artCol = i; break; }
+            }
+            if (artCol >= 0){
+              const firstRow = table.querySelector('tbody tr');
+              if (firstRow){
+                const tds = firstRow.querySelectorAll('td');
+                if (tds && tds.length > artCol){
+                  const artCode = (tds[artCol].textContent || '').trim();
+                  if (artCode) base = _dropLast3(artCode);
+                }
+              }
+            }
+          }
+
+          if (base){
+            if (base !== window.__lastProgrammaticValue){
+              input.value = base;
+              window.__lastProgrammaticValue = base;
+            }
+            input.classList.remove('stealthScan');
+            triggerSearch();
+            finalize();
+          } else {
+            input.classList.remove('stealthScan');
+            // Lascia l'EAN visibile per feedback
+            finalize();
+          }
+        } catch(_){
+          input.classList.remove('stealthScan');
+          finalize();
+        }
+      }, 240);
+    } catch(_){
+      finalize();
+    }
   }
 
+  // --- Apertura / chiusura modal ---
   function openModal(msg){
     els.status.textContent = msg || '';
     els.modal.classList.add('open');
@@ -695,6 +757,7 @@ if (STATE.rows.length === 0){
     els.status.textContent = '';
   }
 
+  // --- ZXing loader ---
   function loadZXing(){
     return new Promise((resolve, reject) => {
       if (window.ZXing) return resolve(window.ZXing);
@@ -706,6 +769,7 @@ if (STATE.rows.length === 0){
     });
   }
 
+  // --- Fallback ZXing ---
   async function startScanZXing(){
     try{
       openModal("Avvio fotocamera (ZXing)…");
@@ -730,7 +794,7 @@ if (STATE.rows.length === 0){
           const settings = track && track.getSettings ? track.getSettings() : {};
           if (settings && settings.deviceId){
             if (settings.facingMode === 'environment') localStorage.setItem('scanner.backDeviceId', settings.deviceId);
-            else if (settings.facingMode === 'user')     localStorage.setItem('scanner.frontDeviceId', settings.deviceId);
+            else if (settings.facingMode === 'user')   localStorage.setItem('scanner.frontDeviceId', settings.deviceId);
           }
         } catch(_){}
       }
@@ -764,6 +828,7 @@ if (STATE.rows.length === 0){
     }
   }
 
+  // --- Nativo o ZXing ---
   async function startScan(){
     openModal("Preparazione scansione…");
 
@@ -823,10 +888,8 @@ if (STATE.rows.length === 0){
     }
   }
 
-  // Espone sempre le funzioni globali
+  // Espone sempre le funzioni globali + wiring robusto
   try { window.__startScan = startScan; window.startScan = startScan; } catch(_){}
-
-  // Wiring robusto
   function wire(){
     try{
       const btn = document.getElementById('btnScan');
@@ -836,7 +899,7 @@ if (STATE.rows.length === 0){
       }
       els.btnClose.addEventListener('click', stopScan);
       document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && els.modal.classList.contains('open')) stopScan(); });
-      // Delegato: se il bottone venisse reinserito, intercetta comunque
+      // Delegato
       document.addEventListener('click', function(ev){
         const t = ev.target;
         if (t && t.id === 'btnScan') try { startScan(); } catch(e){ console.error(e); }
