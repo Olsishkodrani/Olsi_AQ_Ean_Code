@@ -478,7 +478,50 @@ if (STATE.rows.length === 0){
 showResults(matches, exact, queryRaw);
   }
 
-  async function readFileAsArrayBuffer(file) {
+  
+  // ------- Ricerca articolo intero da EAN (globale) -------
+  function searchWholeArticleFromEAN(eanDigits){
+    if (!STATE || !STATE.rows || STATE.rows.length === 0){
+      alert("Prima carica un CSV (o premi 'Usa dati salvati').");
+      return;
+    }
+    const ean = normalizeEAN(eanDigits);
+    if (!ean) { return; }
+    const arrIdx = STATE.index && STATE.index.get ? (STATE.index.get(ean) || []) : [];
+    if (!arrIdx.length){
+      if (els && els.eanInput) els.eanInput.value = ean;
+      if (typeof doSearch === 'function') doSearch();
+      return;
+    }
+    const N = 3; // lunghezza suffisso taglia
+    const stems = new Set();
+    for (const i of arrIdx){
+      const val = STATE.rows[i]?.[STATE.articleIdx];
+      if (!val) continue;
+      const s = String(val).trim();
+      const stem = s.length > N ? s.slice(0, -N) : s;
+      stems.add(stem.toLowerCase());
+    }
+    if (!stems.size){
+      if (els && els.eanInput) els.eanInput.value = ean;
+      if (typeof doSearch === 'function') doSearch();
+      return;
+    }
+    const matches = [];
+    const ai = STATE.articleIdx ?? 0;
+    for (let r=0; r<STATE.rows.length; r++){
+      const v = String(STATE.rows[r][ai] ?? "").toLowerCase();
+      for (const st of stems){
+        if (v.startsWith(st)) { matches.push(STATE.rows[r]); break; }
+      }
+    }
+    const savedIdx = STATE.eanIdx;
+    STATE.eanIdx = ai;
+    showResults(matches, false, `articolo (prefisso senza ultime 3) da EAN ${ean}`);
+    STATE.eanIdx = savedIdx;
+  }
+  window.searchWholeArticleFromEAN = searchWholeArticleFromEAN;
+async function readFileAsArrayBuffer(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () => reject(reader.error);
@@ -559,7 +602,16 @@ showResults(matches, exact, queryRaw);
   els.eanColumn.addEventListener('change', () => { STATE.eanIdx = parseInt(els.eanColumn.value,10)||0; buildIndex(STATE.eanIdx); renderChips(); if (els.resultsCard.style.display!=="none") doSearch(); });
   els.btnSearch.addEventListener('click', doSearch);
   els.eanInput.addEventListener('keydown', (e) => { if (e.key === "Enter") doSearch(); });
-  els.btnClear.addEventListener('click', () => { els.eanInput.value=""; doSearch(); });
+  els.btnClear.addEventListener('click', () => {
+    try { if (els.eanInput) els.eanInput.value = ""; } catch(_){}
+    try { if (els.grid) els.grid.innerHTML = ""; } catch(_){}
+    try { if (els.matchInfo) els.matchInfo.textContent = ""; } catch(_){}
+    try { if (els.fileInfo) els.fileInfo.textContent = ""; } catch(_){}
+    try { if (els.footerMsg) els.footerMsg.textContent = ""; } catch(_){}
+    try { if (els.resultsCard) els.resultsCard.style.display = "none"; } catch(_){}
+    // se c'è uno stato visivo della scansione, azzeralo
+    try { const s = document.getElementById('scanStatus'); if (s) s.textContent = ""; } catch(_){}
+  });
   els.btnShowAll.addEventListener('click', () => { if (STATE.rows.length===0){ alert("Nessun dato."); return;} showResults(STATE.rows.slice(0,500), false, ""); });
   els.btnLoadSaved.addEventListener('click', loadSaved);
   els.btnWipeSaved.addEventListener('click', wipeSaved);
