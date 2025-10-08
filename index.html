@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>OLSI EAN CODE</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #121a33;
+    --muted: #9fb3c8;
+    --text: #e8f0ff;
+    --accent: #4da3ff;
+    --accent-2: #7fe3c1;
+    --danger: #ff6b6b;
+    --ok: #77e36d;
+    --shadow: 0 10px 30px rgba(0,0,0,.35);
+    --radius: 18px;
+  }
+  html,body { height:100%; background: radial-gradient(1200px 600px at 10% -10%, #1a2752 0, transparent 50%), var(--bg); color: var(--text); }
+  body { font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 0; }
+  .container { max-width: 1100px; margin: 24px auto 80px; padding: 0 16px; }
+  .header { display:flex; align-items:center; gap:14px; margin-bottom: 16px; }
+  .logo { width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: var(--shadow); }
+  h1 { font-size: 22px; margin: 0; letter-spacing:.3px; }
+  .card { background: linear-gradient(180deg, #121a33 0%, #0d1429 100%); border:1px solid rgba(255,255,255,.06); box-shadow: var(--shadow); border-radius: var(--radius); padding: 16px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  .row > * { flex: 1 1 160px; }
+  label { font-size: 13px; color: var(--muted); display:block; margin-bottom: 6px; }
+  input[type="file"] { width:100%; }
+  input[type="text"], select {
+    width: 100%; padding: 12px 14px; border-radius: 12px; background: #0b1330; color: var(--text);
+    border: 1px solid rgba(255,255,255,.08); outline: none;
+  }
+  input[type="text"]::placeholder { color: #7f90ab; }
+  button {
+    padding: 12px 14px; border-radius: 12px; border: none; color: #051225; font-weight: 600; letter-spacing:.2px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); cursor: pointer; box-shadow: var(--shadow);
+  }
+  button.secondary { background: #0b1330; color: var(--text); border:1px solid rgba(255,255,255,.08); }
+  button.danger { background: linear-gradient(135deg, #ff7c7c, #ff4a4a); color: #fff; }
+  .tiny { font-size: 12px; color: var(--muted); }
+  .grid { margin-top: 16px; overflow:auto; -webkit-overflow-scrolling: touch; }
+  table { border-collapse: separate; border-spacing: 0; min-width: 800px; width: 100%; background: #0b1330; border-radius: 12px; overflow: hidden; }
+  thead th {
+    position: sticky; top: 0; background: #0f1840; color: #d9e7ff; text-align: left; padding: 10px 12px; font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(6px);
+  }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 14px; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .highlight { background: rgba(77,163,255,.15); }
+  .pill { display:inline-block; padding: 2px 8px; font-size:12px; border-radius:999px; background:#0f1a3f; border:1px solid rgba(255,255,255,.08); color:#bcd1ef; }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin-top: 8px; }
+  .stat { background:#0b1330; border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:10px 12px; font-size:12px; color:#c7d8ef; }
+  .footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
+  .ok { color: var(--ok); }
+  .warn { color: #ffd166; }
+  .center { display:flex; align-items:center; gap:10px; }
+  .checkbox { display:flex; align-items:center; gap:8px; padding: 10px 12px; background:#0b1330; border:1px solid rgba(255,255,255,.08); border-radius: 12px; }
+  .badge { font-weight:600; color:#69d5b7; }
+  .hr { height:1px; background: rgba(255,255,255,.08); margin: 14px 0 8px; }
+  .ghost { opacity:.85; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .chip { font-size:12px; padding:6px 10px; border-radius:999px; background:#0f1a3f; border:1px solid rgba(255,255,255,.08); color:#bcd1ef; cursor:pointer; user-select:none; }
+  .banner { margin-top:10px; padding:10px 12px; border-radius:12px; background:#0b1330; border:1px solid rgba(255,255,255,.12); }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo" aria-hidden="true"></div>
+      <h1>OLSI EAN CODE</h1>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <div style="flex:2 1 260px">
+          <label for="csvFile">Carica CSV</label>
+          <input id="csvFile" type="file" accept=".csv,text/csv">
+          <div class="tiny">Il file resta <span class="badge">locale</span> sul dispositivo.</div>
+        </div>
+        <div>
+          <label for="eanColumn">Colonna EAN</label>
+          <select id="eanColumn" disabled></select>
+        </div>
+        <div>
+          <label for="eanInput">Cerca per EAN</label>
+          <input id="eanInput" type="text" placeholder="Esempio: 8391602940309" autofocus>
+          <div class="tiny" id="hint">Prima carica il CSV o premi “Usa dati salvati”.</div>
+          <div class="chips" id="chips"></div>
+        </div>
+        <div style="flex:0 0 auto; display:flex; gap:10px; align-items:flex-end;">
+          <button id="btnSearch">Cerca</button>
+          <button id="btnClear" class="secondary">Pulisci</button>
+          <button id="btnShowAll" class="secondary">Mostra tutte</button>
+        <button id="btnScan" class="secondary" type="button" onclick="window.__startScan && window.__startScan(); return false;">Scansiona</button>
+</div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <div class="checkbox">
+          <input type="checkbox" id="exact" checked>
+          <label for="exact" style="margin:0;">Corrispondenza esatta</label>
+        </div>
+        <div class="checkbox">
+          <input type="checkbox" id="persist">
+          <label for="persist" style="margin:0;">Salva dati in locale dopo il caricamento</label>
+        </div>
+        <div style="flex:0 0 auto; display:flex; gap:10px; align-items:center;">
+          <button id="btnLoadSaved" class="secondary">Usa dati salvati</button>
+          <button id="btnWipeSaved" class="danger">Cancella dati salvati</button>
+        </div>
+      </div>
+
+      <div class="stats" id="stats"></div>
+
+      <div id="stateBanner" class="banner tiny">Stato: nessun dato caricato.</div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <div class="tiny ghost">Suggerimento: aggiungi questa pagina alla Home (Condividi → Aggiungi a Home) per aprirla come app.</div>
+      </div>
+    </div>
+
+    <div id="resultsCard" class="card" style="margin-top:16px; display:none;">
+      <div class="center" style="justify-content:space-between;">
+        <div class="center" style="gap:8px;">
+          <div class="pill" id="matchInfo">0 risultati</div>
+          <div class="tiny" id="fileInfo"></div>
+        </div>
+        <div class="center" style="gap:8px;">
+          <button id="btnExport" class="secondary">Esporta risultati (CSV)</button>
+        </div>
+      </div>
+
+      <div class="grid" id="grid"></div>
+
+      <div class="footer" id="footerMsg"></div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  const els = {
+    csvFile: document.getElementById('csvFile'),
+    eanColumn: document.getElementById('eanColumn'),
+    eanInput: document.getElementById('eanInput'),
+    btnSearch: document.getElementById('btnSearch'),
+    btnClear: document.getElementById('btnClear'),
+    btnShowAll: document.getElementById('btnShowAll'),
+    exact: document.getElementById('exact'),
+    persist: document.getElementById('persist'),
+    btnLoadSaved: document.getElementById('btnLoadSaved'),
+    btnWipeSaved: document.getElementById('btnWipeSaved'),
+    stats: document.getElementById('stats'),
+    grid: document.getElementById('grid'),
+    resultsCard: document.getElementById('resultsCard'),
+    matchInfo: document.getElementById('matchInfo'),
+    fileInfo: document.getElementById('fileInfo'),
+    footerMsg: document.getElementById('footerMsg'),
+    btnExport: document.getElementById('btnExport'),
+    hint: document.getElementById('hint'),
+    chips: document.getElementById('chips'),
+    banner: document.getElementById('stateBanner'),
+  };
+
+  const STATE = {
+    headers: [],
+    rows: [],
+    eanIdx: -1,
+    filename: "",
+    index: new Map(),
+    uniqueEans: [],
+  };
+
+  const LS_KEY = "ricercaEAN_v1.csvdata";
+
+  function detectDelimiter(sample){
+    const lines = sample.split(/\r?\n/).slice(0, 20);
+    const cands = [",",";","\\t","|"];
+    const scores = { ",":0, ";":0, "\\t":0, "|":0 };
+    for (const line of lines) {
+      scores[","] += (line.match(/,/g)||[]).length;
+      scores[";"] += (line.match(/;/g)||[]).length;
+      scores["\\t"] += (line.match(/\t/g)||[]).length;
+      scores["|"] += (line.match(/\|/g)||[]).length;
+    }
+    let best=";"; let bestVal=-1;
+    for (const c of cands){ if (scores[c] > bestVal){ best=c; bestVal=scores[c]; } }
+    return best==="\\t" ? "\\t" : best;
+  }
+
+  function normalizeCell(val){
+    if (val == null) return "";
+    let s = String(val).trim();
+    const m = s.match(/^=\s*"([\s\S]*)"$/);
+    if (m) s = m[1];
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) s = s.slice(1,-1);
+    s = s.replace(/""/g, '"');
+    return s;
+  }
+
+  function normalizeEAN(ean){
+    // Rimuove TUTTO tranne le cifre: risolve casi con spazi, tab, caratteri invisibili
+    return String(ean ?? "").replace(/[^0-9]/g,"").trim();
+  }
+
+  function parseCSV(text, delimiterChar){
+    const delimiter = delimiterChar === "\\t" ? "\t" : delimiterChar;
+    const rows = [];
+    let row=[]; let field=""; let inQuotes=false;
+    for (let i=0;i<text.length;i++){
+      const ch = text[i];
+      if (inQuotes){
+        if (ch === '"'){
+          if (text[i+1] === '"'){ field+='"'; i++; }
+          else { inQuotes=false; }
+        } else { field += ch; }
+      } else {
+        if (ch === '"'){ inQuotes = true; }
+        else if (ch === delimiter){ row.push(normalizeCell(field)); field=""; }
+        else if (ch === "\n"){ row.push(normalizeCell(field)); rows.push(row); row=[]; field=""; }
+        else if (ch === "\r"){
+          if (text[i+1] === "\n"){ row.push(normalizeCell(field)); rows.push(row); row=[]; field=""; i++; }
+          else { row.push(normalizeCell(field)); rows.push(row); row=[]; field=""; }
+        } else { field += ch; }
+      }
+    }
+    row.push(normalizeCell(field)); rows.push(row);
+    while (rows.length && rows[rows.length-1].every(c => c === "")) rows.pop();
+    return rows;
+  }
+
+  function autoPickEanColumn(headers){
+    const candidates = ["EAN","BARCODE","CODICE EAN","CODICEEAN","CODICE_A_BARRE","CODICE A BARRE","BAR CODE","UPC","GTIN","CODICE ARTICOLO","CODICE_ARTICOLO","CODICE"];
+    const U = headers.map(h => String(h).toUpperCase().trim());
+    for (const cand of candidates) {
+      const idx = U.indexOf(cand);
+      if (idx !== -1) return idx;
+    }
+    for (let i=0;i<U.length;i++){
+      if (/(EAN|BAR|GTIN|UPC)/.test(U[i])) return i;
+    }
+    return 0;
+  }
+
+  function buildIndex(eanIdx){
+    STATE.index = new Map();
+    STATE.uniqueEans = [];
+    const seen = new Set();
+    for (let i=0;i<STATE.rows.length;i++){
+      const key = normalizeEAN(STATE.rows[i][eanIdx]);
+      if (!STATE.index.has(key)) STATE.index.set(key, []);
+      STATE.index.get(key).push(i);
+      if (key && !seen.has(key)){ seen.add(key); STATE.uniqueEans.push(key); }
+    }
+  }
+
+  function renderStats(){
+    els.stats.innerHTML = "";
+    const mk = (t)=>{ const d=document.createElement("div"); d.className="stat"; d.textContent=t; return d; };
+    els.stats.append(mk(`Righe: ${STATE.rows.length.toLocaleString('it-IT')}`),
+                     mk(`Colonne: ${STATE.headers.length}`),
+                     mk(STATE.filename ? `File: ${STATE.filename}` : "Nessun file"),
+                     mk(`Colonna EAN: ${STATE.headers[STATE.eanIdx] ?? '-'}`));
+  }
+
+  function fillEanColumnSelect(){
+    els.eanColumn.innerHTML = "";
+    STATE.headers.forEach((h, idx) => {
+      const opt = document.createElement("option");
+      opt.value = idx;
+      opt.textContent = h || `Colonna ${idx+1}`;
+      els.eanColumn.appendChild(opt);
+    });
+    const guess = autoPickEanColumn(STATE.headers);
+    els.eanColumn.value = String(guess);
+    STATE.eanIdx = guess;
+    els.eanColumn.disabled = false;
+  }
+
+  function renderChips(){
+    els.chips.innerHTML = "";
+    const n = Math.min(5, STATE.uniqueEans.length);
+    for (let i=0;i<n;i++){
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.textContent = STATE.uniqueEans[i];
+      chip.addEventListener('click', () => { els.eanInput.value = chip.textContent; doSearch(); });
+      els.chips.appendChild(chip);
+    }
+    if (n === 0){
+      const t = document.createElement("div");
+      t.className="tiny"; t.textContent="(Nessun EAN rilevato nella colonna selezionata)";
+      els.chips.appendChild(t);
+    }
+  }
+
+  function renderTable(rows){
+    const headers = STATE.headers;
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const trh = document.createElement("tr");
+    headers.forEach(h => {
+      const th = document.createElement("th");
+      th.textContent = h;
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const r of rows){
+      const tr = document.createElement("tr");
+      headers.forEach((_,i) => {
+        const td = document.createElement("td");
+        const val = r[i] ?? "";
+        td.textContent = val;
+        if (i === STATE.eanIdx) td.classList.add("highlight");
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    els.grid.innerHTML = "";
+    els.grid.appendChild(table);
+  }
+
+  function showResults(rows, exact, query){
+    els.resultsCard.style.display = "block";
+    renderTable(rows);
+    const n = rows.length;
+    els.matchInfo.textContent = `${n} risultat${n===1?'o':'i'}`;
+    const colName = STATE.headers[STATE.eanIdx] ?? "EAN";
+    els.fileInfo.textContent = `Colonna: "${colName}" • Modalità: ${exact ? 'esatta' : 'contiene'}${query?` • Query: ${query}`:''}`;
+    els.footerMsg.textContent = (n===0) ? "Nessuna corrispondenza. Prova a selezionare un'altra colonna EAN." :
+      (n>500 ? "Molti risultati: usa una ricerca più specifica." : "");
+  }
+
+  function doSearch(){
+    const queryRaw = els.eanInput.value || "";
+    const query = normalizeEAN(queryRaw);
+    const exact = els.exact.checked;
+
+    
+    // Ricerca alfanumerica: se la query contiene lettere/simboli, cerca su tutte le colonne (case-insensitive)
+    const hasNonDigit = /[^0-9]/.test(queryRaw);
+    if (hasNonDigit){
+      const norm = (s) => {
+        let v = String(s ?? "").toLowerCase();
+        try { v = v.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch {}
+        v = v.replace(/\u00A0/g, ' ');
+        v = v.replace(/[.,;:!?/\\()\[\]{}'"`´^~]+/g, ' ');
+        v = v.replace(/\s+/g, ' ').trim();
+        return v;
+      };
+      const q = norm(queryRaw);
+      if (!q) { showResults([], exact, ""); return; }
+      let matches = [];
+      if (exact) {
+        for (let i=0;i<STATE.rows.length;i++){
+          const row = STATE.rows[i];
+          let ok = false;
+          for (let c=0;c<row.length;c++){
+            if (norm(row[c]) === q) { ok = true; break; }
+          }
+          if (ok) matches.push(row);
+        }
+      } else {
+        for (let i=0;i<STATE.rows.length;i++){
+          const row = STATE.rows[i];
+          let ok = false;
+          for (let c=0;c<row.length;c++){
+            if (norm(row[c]).includes(q)) { ok = true; break; }
+          }
+          if (ok) matches.push(row);
+        }
+      }
+      showResults(matches, exact, queryRaw);
+      return;
+    }
+if (STATE.rows.length === 0){
+      alert("Prima carica un CSV (o premi 'Usa dati salvati').");
+      els.hint.textContent = "Carica il CSV per attivare la ricerca sui dati.";
+      els.banner.textContent = "Stato: nessun dato caricato.";
+      return;
+    }
+    if (!query) { showResults([], exact, ""); return; }
+
+    let matches = [];
+    if (exact) {
+      const arrIdx = STATE.index.get(query) || [];
+      matches = arrIdx.map(i => STATE.rows[i]);
+    } else {
+      for (let i=0;i<STATE.rows.length;i++){
+        const v = normalizeEAN(STATE.rows[i][STATE.eanIdx]);
+        if (v.includes(query)) matches.push(STATE.rows[i]);
+      }
+    }
+    showResults(matches, exact, queryRaw);
+  }
+
+  async function readFileAsArrayBuffer(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
+      reader.onload = () => resolve(reader.result);
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  function decodeBuffer(buf){
+    try { return new TextDecoder("utf-8",{fatal:true}).decode(buf); }
+    catch(_){ try { return new TextDecoder("windows-1252").decode(buf); }
+      catch(_){ return new TextDecoder().decode(buf); } }
+  }
+
+  function afterDataLoaded(){
+    renderStats();
+    fillEanColumnSelect();
+    buildIndex(STATE.eanIdx);
+    renderChips();
+    els.hint.textContent = "Dati caricati. Ora puoi cercare.";
+    els.banner.textContent = `Stato: caricato "${STATE.filename}" • Righe: ${STATE.rows.length} • Colonne: ${STATE.headers.length}`;
+  }
+
+  function parseAndLoad(text, filename=""){
+    const delim = detectDelimiter(text);
+    const rows = parseCSV(text, delim);
+    if (!rows.length) throw new Error("CSV vuoto o non riconosciuto.");
+    STATE.headers = rows[0].map(normalizeCell);
+    STATE.rows = rows.slice(1);
+    STATE.filename = filename;
+    afterDataLoaded();
+  }
+
+  async function handleFile(file){
+    try {
+      const buf = await readFileAsArrayBuffer(file);
+      const text = decodeBuffer(buf);
+      parseAndLoad(text, file.name);
+
+      if (els.persist.checked){
+        try { localStorage.setItem(LS_KEY, text);
+          els.footerMsg.innerHTML = "✅ Dati salvati in locale (memoria del browser).";
+        } catch { els.footerMsg.innerHTML = "⚠️ Impossibile salvare in locale (spazio insufficiente)."; }
+      } else { els.footerMsg.textContent = ""; }
+    } catch (err){ alert("Errore nel caricamento del file: " + err.message); }
+  }
+
+  function loadSaved(){
+    const text = localStorage.getItem(LS_KEY);
+    if (!text) { alert("Nessun dato salvato trovato."); return; }
+    parseAndLoad(text, "(dati salvati)");
+  }
+
+  function wipeSaved(){ localStorage.removeItem(LS_KEY); alert("Dati salvati cancellati."); }
+
+  function exportCSV(rows){
+    const headers = STATE.headers;
+    const lines = [];
+    const esc = (s) => {
+      const str = (s ?? "").toString();
+      if (/[",;\n]/.test(str)) return '"' + str.replace(/"/g,'""') + '"';
+      return str;
+    };
+    lines.push(headers.map(esc).join(";"));
+    for (const r of rows){ lines.push(headers.map((_,i)=>esc(r[i] ?? "")).join(";")); }
+    const blob = new Blob([lines.join("\n")], {type:"text/csv"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "risultati_ean.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // Events
+  els.csvFile.addEventListener('change', (e) => { const f=e.target.files?.[0]; if (f) handleFile(f); });
+  els.eanColumn.addEventListener('change', () => { STATE.eanIdx = parseInt(els.eanColumn.value,10)||0; buildIndex(STATE.eanIdx); renderChips(); if (els.resultsCard.style.display!=="none") doSearch(); });
+  els.btnSearch.addEventListener('click', doSearch);
+  els.eanInput.addEventListener('keydown', (e) => { if (e.key === "Enter") doSearch(); });
+  els.btnClear.addEventListener('click', () => { els.eanInput.value=""; doSearch(); });
+  els.btnShowAll.addEventListener('click', () => { if (STATE.rows.length===0){ alert("Nessun dato."); return;} showResults(STATE.rows.slice(0,500), false, ""); });
+  els.btnLoadSaved.addEventListener('click', loadSaved);
+  els.btnWipeSaved.addEventListener('click', wipeSaved);
+  els.btnExport?.addEventListener('click', () => {
+    if (els.grid.querySelector('tbody')){
+      const rows = [];
+      const trs = els.grid.querySelectorAll('tbody tr');
+      trs.forEach(tr => {
+        const tds = [...tr.querySelectorAll('td')];
+        rows.push(tds.map(td => td.textContent));
+      });
+      exportCSV(rows);
+    }
+  });
+
+  // Placeholder
+  els.eanColumn.innerHTML = '<option>Carica un CSV…</option>';
+  els.fileInfo.textContent = "";
+  els.footerMsg.textContent = "Carica un CSV per iniziare. Supporto ; , \\t | e codifica Windows-1252/UTF-8.";
+})();
+</script>
+
+<!-- ==== Scanner barcode: UI + logica (single-file, iOS Safari–ready) ==== -->
+<script>
+(() => {
+  // --- CSS inline (non modifica gli stili esistenti) ---
+  const style = document.createElement('style');
+  style.textContent = `
+  /* Scanner modal */
+  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:9999}
+  .modal.open{display:flex}
+  .modal .sheet{background:var(--card,#111);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;width:min(92vw,720px);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  #scanVideo{width:100%;border-radius:12px;background:#000;max-height:70vh}
+  .rowtop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+  .tiny{font-size:.85rem;opacity:.9}
+  .badge{background:#1f6feb;border-radius:999px;padding:.1rem .5rem}
+  `;
+  document.head.appendChild(style);
+
+  // --- Modal HTML creato dinamicamente ---
+  const modal = document.createElement('div');
+  modal.id = 'scanModal';
+  modal.className = 'modal';
+  modal.setAttribute('role','dialog');
+  modal.setAttribute('aria-hidden','true');
+  modal.setAttribute('aria-label','Scanner barcode');
+  modal.innerHTML = `
+    <div class="sheet">
+      <div class="rowtop">
+        <div class="tiny">Inquadra il codice a barre <span class="badge">locale</span></div>
+        <button id="btnScanClose" class="secondary" type="button">Chiudi</button>
+      </div>
+      <video id="scanVideo" autoplay playsinline muted></video>
+      <div class="tiny" id="scanStatus" style="margin-top:6px;"></div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  // --- Riferimenti ---
+  const els = {
+    modal,
+    video: modal.querySelector('#scanVideo'),
+    status: modal.querySelector('#scanStatus'),
+    btnClose: modal.querySelector('#btnScanClose'),
+  };
+
+  // --- Stato scanner ---
+  let _scanStream = null;
+  let _scanning   = false;
+  let _detector   = null;
+  let _zxingReader = null;
+  let _zxingControls = null;
+
+  // --- Inserimento / aggancio bottone (se non già presente in markup) ---
+  function insertScanButton(){
+    const existing = document.getElementById('btnScan');
+    if (existing){
+      existing.addEventListener('click', startScan);
+      window.__startScan = startScan;
+      return;
+    }
+    const btn = document.createElement('button');
+    btn.id = 'btnScan';
+    btn.type = 'button';
+    btn.className = 'secondary';
+    btn.textContent = 'Scansiona';
+    btn.onclick = () => { startScan(); return false; };
+
+    const searchBtn = document.getElementById('btnSearch');
+    const clearBtn  = document.getElementById('btnClear');
+    const showAllBtn= document.getElementById('btnShowAll');
+    const anchor = showAllBtn || clearBtn || searchBtn;
+    if (anchor && anchor.parentElement){
+      anchor.parentElement.insertBefore(btn, anchor.nextSibling);
+    } else {
+      const eanInput = document.getElementById('eanInput');
+      const parent = eanInput ? (eanInput.closest('.row,.actions,.buttons,form,.toolbar') || eanInput.parentElement) : null;
+      (parent || document.body).appendChild(btn);
+    }
+  }
+
+  // --- Apertura / chiusura modal ---
+  function openModal(msg){
+    els.status.textContent = msg || '';
+    els.modal.classList.add('open');
+    els.modal.setAttribute('aria-hidden','false');
+  }
+  function stopScan(){
+    _scanning = false;
+    try { if (_scanStream) _scanStream.getTracks().forEach(t => t.stop()); } catch(_) {}
+    _scanStream = null;
+    els.video.srcObject = null;
+    try { if (_zxingControls && _zxingControls.stop) _zxingControls.stop(); } catch(_) {}
+    try { if (_zxingReader && _zxingReader.reset) _zxingReader.reset(); } catch(_) {}
+    _zxingControls = null;
+    _zxingReader = null;
+    els.modal.classList.remove('open');
+    els.modal.setAttribute('aria-hidden','true');
+    els.status.textContent = '';
+  }
+
+  // --- Loader ZXing (CDN) ---
+  function loadZXing(){
+    return new Promise((resolve, reject) => {
+      if (window.ZXing) return resolve(window.ZXing);
+      const s = document.createElement('script');
+      s.src = "https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js";
+      s.onload = () => resolve(window.ZXing);
+      s.onerror = () => reject(new Error("Impossibile caricare ZXing"));
+      document.head.appendChild(s);
+    });
+  }
+
+  // --- Fallback: ZXing (iOS Safari & assenza BarcodeDetector) con posteriore stabile ---
+  async function startScanZXing(){
+    try{
+      openModal("Avvio fotocamera (ZXing)…");
+      const ZX = await loadZXing();
+      _zxingReader = new ZX.BrowserMultiFormatReader();
+
+      function onResult(result, err){
+        if (result && result.getText){
+          const raw = String(result.getText());
+          const digits = raw.replace(/\D+/g, "");
+          if (digits){
+            const input = document.getElementById('eanInput');
+            if (input) input.value = digits;
+            stopScan();
+            if (typeof window.doSearch === 'function') window.doSearch();
+          }
+        }
+        if (err && !(err instanceof ZX.NotFoundException)) {
+          els.status.textContent = "Errore scansione: " + (err.message || String(err));
+        }
+      }
+
+      function captureAndStoreDeviceId(){
+        try {
+          const stream   = els.video.srcObject;
+          const track    = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
+          const settings = track && track.getSettings ? track.getSettings() : {};
+          if (settings && settings.deviceId){
+            if (settings.facingMode === 'environment') {
+              localStorage.setItem('scanner.backDeviceId', settings.deviceId);
+            } else if (settings.facingMode === 'user') {
+              localStorage.setItem('scanner.frontDeviceId', settings.deviceId);
+            }
+          }
+        } catch(_){}
+      }
+
+      // 1) Prima scelta: constraints con facingMode 'environment' (preferibile su iOS)
+      if (typeof _zxingReader.decodeFromConstraints === 'function'){
+        try {
+          const constraints = { video: { facingMode: { ideal: 'environment' } }, audio: false };
+          _zxingControls = await _zxingReader.decodeFromConstraints(constraints, els.video, onResult);
+          _scanning = true;
+          els.status.textContent = "Inquadra il codice…";
+          setTimeout(captureAndStoreDeviceId, 300);
+          return;
+        } catch(e){ /* proseguiamo */ }
+      }
+
+      // 2) Seconda scelta: usa l'ID della back già memorizzato (se esiste)
+      let deviceId = null;
+      try { deviceId = localStorage.getItem('scanner.backDeviceId') || null; } catch(_){}
+
+      // 3) Terza scelta: stima con enumerateDevices
+      if (!deviceId && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices){
+        const all = await navigator.mediaDevices.enumerateDevices().catch(()=>[]);
+        const cams = (all || []).filter(d => d && d.kind === 'videoinput');
+        const back = cams.find(d => /back|rear|environment/i.test((d.label||''))) || cams[0];
+        if (back) deviceId = back.deviceId;
+      }
+
+      // 4) Avvia con deviceId (o default se indefinito)
+      _zxingControls = await _zxingReader.decodeFromVideoDevice(deviceId, els.video, onResult);
+      _scanning = true;
+      els.status.textContent = "Inquadra il codice…";
+      setTimeout(captureAndStoreDeviceId, 300);
+    } catch(e){
+      els.status.textContent = "Impossibile avviare ZXing: " + (e && e.message ? e.message : String(e));
+    }
+  }
+
+  // --- Primaria: BarcodeDetector se disponibile, altrimenti ZXing ---
+  async function startScan(){
+    try { window.__startScan = startScan; } catch(_) {}
+    openModal("Preparazione scansione…");
+
+    const ua = navigator.userAgent || "";
+    const isAppleDevice = /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+    const preferZXing = isAppleDevice && isSafari;
+
+    const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const supportsDetector = 'BarcodeDetector' in window;
+
+    if (!hasMedia) {
+      els.status.textContent = "Questo browser non consente l'accesso alla fotocamera. Servono HTTPS o localhost.";
+      return;
+    }
+    if (preferZXing || !supportsDetector) {
+      await startScanZXing();
+      return;
+    }
+
+    try {
+      els.status.textContent = "Avvio fotocamera…";
+      _detector = _detector || new BarcodeDetector({ formats: [
+        'ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code'
+      ]});
+      _scanStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } }, audio: false
+      });
+      els.video.srcObject = _scanStream;
+      await els.video.play().catch(()=>{});
+      _scanning = true;
+      els.status.textContent = "Inquadra il codice…";
+
+      // Se in 2s non rileva (o Safari capriccioso), commuta su ZXing
+      setTimeout(() => {
+        if (_scanning && isSafari) {
+          try { stopScan(); } catch(_) {}
+          startScanZXing();
+        }
+      }, 2000);
+
+      const loop = async () => {
+        if (!_scanning) return;
+        try {
+          const codes = await _detector.detect(els.video);
+          if (codes && codes.length){
+            const preferred = codes.find(c => /^(ean_13|ean_8|upc_a|upc_e)$/i.test(c.format)) || codes[0];
+            const raw = (preferred.rawValue || "").toString();
+            const digits = raw.replace(/\D+/g, "");
+            if (digits){
+              const input = document.getElementById('eanInput');
+              if (input) input.value = digits;
+              stopScan();
+              if (typeof window.doSearch === 'function') window.doSearch();
+              return;
+            }
+          }
+        } catch(err){
+          els.status.textContent = "Errore scansione: " + (err && err.message ? err.message : String(err));
+        }
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    } catch(err){
+      els.status.textContent = "Problema con la fotocamera. Provo fallback ZXing…";
+      try { stopScan(); } catch(_) {}
+      await startScanZXing();
+    }
+  }
+
+  // --- Wiring robusto ---
+  (function initScannerUI(){
+    function wire(){
+      try{
+        insertScanButton();
+        const btn = document.getElementById('btnScan');
+        if (btn){
+          btn.addEventListener('click', startScan);
+          window.__startScan = startScan;
+        }
+        els.btnClose.addEventListener('click', stopScan);
+        document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && els.modal.classList.contains('open')) stopScan(); });
+      } catch(e){
+        console.error("Scanner UI wiring error:", e);
+      }
+    }
+    if (document.readyState === 'loading'){
+      document.addEventListener('DOMContentLoaded', wire);
+    } else {
+      wire();
+    }
+  })();
+})();
+</script>
+<!-- ==== /Scanner barcode ==== -->
+</body>
+</html>
