@@ -524,6 +524,7 @@ if (STATE.rows.length === 0){
   .scanViewport #scanVideo{display:block}
   .scanLine{position:absolute;left:4%;right:4%;top:50%;height:2px;background:rgba(255,0,0,.95);
             box-shadow:0 0 8px rgba(255,0,0,.8),0 0 2px rgba(0,0,0,.6);transform:translateY(-1px);pointer-events:none;border-radius:2px}
+  .stealthScan{ color: transparent !important; caret-color: transparent !important; text-shadow: none !important; }
   `;
   document.head.appendChild(style);
 
@@ -604,11 +605,153 @@ if (STATE.rows.length === 0){
   }
 
   
+
 function performArticleSearchFromEAN(eanDigits){
-  // Evita richiami multipli ravvicinati (debounce)
   if (window.__autoSearchBusy) return;
   window.__autoSearchBusy = true;
   const finalize = () => { setTimeout(() => { window.__autoSearchBusy = false; }, 600); };
+
+  try { stopScan(); } catch(_){}
+
+  function triggerSearch(){
+    try { if (typeof window.doSearch === 'function') return window.doSearch(); } catch(_){}
+    try { if (typeof doSearch === 'function') return doSearch(); } catch(_){}
+    const btn = document.getElementById('btnSearch');
+    if (btn && typeof btn.click === 'function') btn.click();
+  }
+
+  const _slug = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
+  const _digits = s => String(s||'').replace(/\D+/g,'');
+  const _dropLast3 = s => { const t = String(s||'').trim(); return t.length > 3 ? t.slice(0, -3) : t; };
+
+  // 1) STATE-based (no flicker)
+  try {
+    const D = window.STATE || window._STATE || {};
+    const headers = D.headers || D.header || [];
+    const rows = D.rows || D.data || [];
+    let eanIdx = (typeof D.eanIndex === 'number') ? D.eanIndex : (typeof D.eanCol === 'number' ? D.eanCol : -1);
+    let artIdx = -1;
+
+    if (Array.isArray(headers) && headers.length){
+      const slugs = headers.map(_slug);
+      if (eanIdx < 0){
+        const keys = ['EAN','BARCODE','GTIN','UPC'];
+        for (let i=0;i<slugs.length;i++){ if (keys.some(k => slugs[i].includes(k))) { eanIdx = i; break; } }
+        if (eanIdx < 0) eanIdx = 0;
+      }
+      for (let i=0;i<slugs.length;i++){
+        if (slugs[i] === 'CODICEARTICOLO' || (slugs[i].includes('CODICE') && slugs[i].includes('ARTICOLO'))){ artIdx = i; break; }
+      }
+    }
+
+    if (eanIdx >= 0 && artIdx >= 0 && Array.isArray(rows) && rows.length){
+      const target = String(eanDigits);
+      let foundCode = null;
+
+      const maps = [D.eanMap, D.byEAN, D.index, D.map];
+      let rowIdxs = null;
+      for (const m of maps){
+        if (m && typeof m.get === 'function'){
+          rowIdxs = m.get(_digits(target)) || m.get(target) || null;
+          if (typeof rowIdxs === 'number') rowIdxs = [rowIdxs];
+          if (Array.isArray(rowIdxs) && rowIdxs.length) break;
+        }
+      }
+      if (Array.isArray(rowIdxs) && rowIdxs.length){
+        const r = rowIdxs[0];
+        const row = rows[r] || [];
+        foundCode = String(row[artIdx] ?? '').trim();
+      } else {
+        for (let r=0;r<rows.length;r++){
+          const row = rows[r] || [];
+          const cellEAN = _digits(row[eanIdx] ?? '');
+          if (cellEAN === target){
+            foundCode = String(row[artIdx] ?? '').trim();
+            if (foundCode) break;
+          }
+        }
+      }
+
+      if (foundCode){
+        const base = _dropLast3(foundCode);
+        const input = document.getElementById('eanInput');
+        if (input) input.value = base;
+        triggerSearch();
+        return finalize();
+      }
+    }
+  } catch(e){ console.warn("Article lookup via STATE failed:", e); }
+
+  // 2) DOM rapido (se già renderizzato) - no EAN nell'input
+  try {
+    const table = document.querySelector('table');
+    if (table){
+      const ths = Array.from(table.querySelectorAll('thead th'));
+      const headersText = ths.map(th => th.textContent || '');
+      let artCol = -1;
+      for (let i=0;i<headersText.length;i++){
+        const s = _slug(headersText[i]);
+        if (s === 'CODICEARTICOLO' || (s.includes('CODICE') && s.includes('ARTICOLO'))){ artCol = i; break; }
+      }
+      const firstRow = table.querySelector('tbody tr');
+      if (artCol >= 0 && firstRow){
+        const tds = firstRow.querySelectorAll('td');
+        if (tds && tds.length > artCol){
+          const artCode = (tds[artCol].textContent || '').trim();
+          if (artCode){
+            const base = _dropLast3(artCode);
+            const input = document.getElementById('eanInput');
+            if (input) input.value = base;
+            triggerSearch();
+            return finalize();
+          }
+        }
+      }
+    }
+  } catch(e){ console.warn("DOM quick fallback failed:", e); }
+
+  // 3) Fallback 'stealth': usa l'EAN per una sola ricerca, ma lo rende invisibile durante lo step
+  try {
+    const input = document.getElementById('eanInput');
+    const prev = input ? input.value : '';
+    if (input){
+      input.classList.add('stealthScan');
+      input.value = String(eanDigits);
+    }
+    triggerSearch();
+
+    setTimeout(() => {
+      try{
+        const table = document.querySelector('table'); if (!table) { if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
+        const ths = Array.from(table.querySelectorAll('thead th'));
+        const headersText = ths.map(th => th.textContent || '');
+        let artCol = -1;
+        for (let i=0;i<headersText.length;i++){
+          const s = (headersText[i]||'').toUpperCase();
+          if (s.includes('CODICE') && s.includes('ARTICOLO')){ artCol = i; break; }
+        }
+        if (artCol === -1){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
+        const firstRow = table.querySelector('tbody tr'); if (!firstRow){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
+        const tds = firstRow.querySelectorAll('td'); if (!tds || tds.length <= artCol){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
+        const artCode = (tds[artCol].textContent || '').trim(); if (!artCode){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
+
+        const base = _dropLast3(artCode);
+        if (input){
+          input.value = base;
+          input.classList.remove('stealthScan');
+        }
+        triggerSearch();
+        finalize();
+      } catch(_){
+        if (input){ input.classList.remove('stealthScan'); input.value = prev; }
+        finalize();
+      }
+    }, 220);
+  } catch(_){
+    finalize();
+  }
+}
+, 600); };
 
   // Chiudi subito lo scanner (evita multiple callback in coda)
   try { stopScan(); } catch(_){}
