@@ -505,7 +505,7 @@ if (STATE.rows.length === 0){
 })();
 </script>
 
-<!-- ==== Scanner barcode: single-file (iOS-ready) + overlay + articolo auto === -->
+<!-- ==== Scanner barcode: single-file (iOS-ready) + overlay + articolo auto (no flicker) ==== -->
 <script>
 (() => {
   // --- CSS inline ---
@@ -592,86 +592,131 @@ if (STATE.rows.length === 0){
   }
 
   // --- Helpers articolo ---
-  function __slug(s){
-    return String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
+  const _slug = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
+  const _digits = s => String(s||'').replace(/\D+/g,'');
+  const _dropLast3 = s => { const t = String(s||'').trim(); return t.length > 3 ? t.slice(0, -3) : t; };
+
+  function triggerSearch(){
+    try { if (typeof window.doSearch === 'function') return window.doSearch(); } catch(_){}
+    try { if (typeof doSearch === 'function') return doSearch(); } catch(_){}
+    const btn = document.getElementById('btnSearch');
+    if (btn && typeof btn.click === 'function') btn.click();
   }
-  function __digits(s){ return String(s||'').replace(/\D+/g,''); }
-  function __dropLast3(s){
-    const t = String(s||'').trim();
-    return t.length > 3 ? t.slice(0, -3) : t;
-  }
+
   function performArticleSearchFromEAN(eanDigits){
     try { stopScan(); } catch(_){}
-    // 1) Prova via dati (STATE)
+
+    // 1) Primo: usa dati in memoria (STATE) per evitare flicker
     try {
-      const D = window.STATE || {};
+      const D = window.STATE || window._STATE || {};
       const headers = D.headers || D.header || [];
       const rows = D.rows || D.data || [];
       let eanIdx = (typeof D.eanIndex === 'number') ? D.eanIndex : (typeof D.eanCol === 'number' ? D.eanCol : -1);
       let artIdx = -1;
 
       if (Array.isArray(headers) && headers.length){
-        const slugs = headers.map(__slug);
+        const slugs = headers.map(_slug);
         if (eanIdx < 0){
-          const candidates = ['EAN','BARCODE','GTIN','UPC'];
-          for (let i=0;i<slugs.length;i++){
-            if (candidates.includes(slugs[i])) { eanIdx = i; break; }
-          }
+          const keys = ['EAN','BARCODE','GTIN','UPC'];
+          for (let i=0;i<slugs.length;i++){ if (keys.some(k => slugs[i].includes(k))) { eanIdx = i; break; } }
           if (eanIdx < 0) eanIdx = 0;
         }
         for (let i=0;i<slugs.length;i++){
-          if (slugs[i] === 'CODICEARTICOLO') { artIdx = i; break; }
+          if (slugs[i] === 'CODICEARTICOLO' || (slugs[i].includes('CODICE') && slugs[i].includes('ARTICOLO'))){ artIdx = i; break; }
         }
       }
 
       if (eanIdx >= 0 && artIdx >= 0 && Array.isArray(rows) && rows.length){
         const target = String(eanDigits);
         let foundCode = null;
-        for (let r=0;r<rows.length;r++){
-          const row = rows[r] || [];
-          const cellEAN = __digits(row[eanIdx] ?? '');
-          if (cellEAN === target){
-            foundCode = String(row[artIdx] ?? '').trim();
-            if (foundCode) break;
+
+        // Se esiste una mappa indice EAN->righe
+        const maps = [D.eanMap, D.byEAN, D.index, D.map];
+        let rowIdxs = null;
+        for (const m of maps){
+          if (m && typeof m.get === 'function'){
+            rowIdxs = m.get(_digits(target)) || m.get(target) || null;
+            if (typeof rowIdxs === 'number') rowIdxs = [rowIdxs];
+            if (Array.isArray(rowIdxs) && rowIdxs.length) break;
           }
         }
+
+        if (Array.isArray(rowIdxs) && rowIdxs.length){
+          const r = rowIdxs[0];
+          const row = rows[r] || [];
+          foundCode = String(row[artIdx] ?? '').trim();
+        } else {
+          // scansione lineare
+          for (let r=0;r<rows.length;r++){
+            const row = rows[r] || [];
+            const cellEAN = _digits(row[eanIdx] ?? '');
+            if (cellEAN === target){
+              foundCode = String(row[artIdx] ?? '').trim();
+              if (foundCode) break;
+            }
+          }
+        }
+
         if (foundCode){
-          const base = __dropLast3(foundCode);
+          const base = _dropLast3(foundCode);
           const input = document.getElementById('eanInput');
           if (input) input.value = base;
-          if (typeof window.doSearch === 'function') window.doSearch();
-          return;
+          return triggerSearch();
         }
       }
-    } catch(e){ console.warn("Data-level article lookup failed:", e); }
+    } catch(e){ console.warn("Article lookup via STATE failed:", e); }
 
-    // 2) Fallback DOM: fai ricerca EAN, poi prendi CODICE_ARTICOLO dalla prima riga
+    // 2) Fallback DOM rapido: usa prima riga già visibile (senza scrivere EAN nell'input)
+    try {
+      const table = document.querySelector('table');
+      if (table){
+        const ths = Array.from(table.querySelectorAll('thead th'));
+        const headersText = ths.map(th => th.textContent || '');
+        let artCol = -1;
+        for (let i=0;i<headersText.length;i++){
+          const s = _slug(headersText[i]);
+          if (s === 'CODICEARTICOLO' || (s.includes('CODICE') && s.includes('ARTICOLO'))){ artCol = i; break; }
+        }
+        const firstRow = table.querySelector('tbody tr');
+        if (artCol >= 0 && firstRow){
+          const tds = firstRow.querySelectorAll('td');
+          if (tds && tds.length > artCol){
+            const artCode = (tds[artCol].textContent || '').trim();
+            if (artCode){
+              const base = _dropLast3(artCode);
+              const input = document.getElementById('eanInput');
+              if (input) input.value = base;
+              return triggerSearch();
+            }
+          }
+        }
+      }
+    } catch(e){ console.warn("DOM quick fallback failed:", e); }
+
+    // 3) Ultima spiaggia: una sola sequenza EAN->render->base (possibile breve cambio, ma singolo)
     try {
       const input = document.getElementById('eanInput');
-      if (input) input.value = eanDigits;
-      if (typeof window.doSearch === 'function') window.doSearch();
+      if (input) input.value = String(eanDigits);
+      triggerSearch();
       setTimeout(() => {
         try{
-          const table = document.querySelector('table');
-          if (!table) return;
+          const table = document.querySelector('table'); if (!table) return;
           const ths = Array.from(table.querySelectorAll('thead th'));
           const headersText = ths.map(th => th.textContent || '');
           let artCol = -1;
           for (let i=0;i<headersText.length;i++){
-            if (__slug(headersText[i]) === 'CODICEARTICOLO'){ artCol = i; break; }
+            const s = (headersText[i]||'').toUpperCase();
+            if (s.includes('CODICE') && s.includes('ARTICOLO')){ artCol = i; break; }
           }
           if (artCol === -1) return;
-          const firstRow = table.querySelector('tbody tr');
-          if (!firstRow) return;
-          const tds = firstRow.querySelectorAll('td');
-          if (!tds || tds.length <= artCol) return;
-          const artCode = (tds[artCol].textContent || '').trim();
-          if (!artCode) return;
-          const base = __dropLast3(artCode);
+          const firstRow = table.querySelector('tbody tr'); if (!firstRow) return;
+          const tds = firstRow.querySelectorAll('td'); if (!tds || tds.length <= artCol) return;
+          const artCode = (tds[artCol].textContent || '').trim(); if (!artCode) return;
+          const base = _dropLast3(artCode);
           if (input) input.value = base;
-          if (typeof window.doSearch === 'function') window.doSearch();
-        } catch(e){ console.warn("DOM fallback failed:", e); }
-      }, 150);
+          triggerSearch();
+        } catch(_){}
+      }, 200);
     } catch(_){}
   }
 
@@ -729,7 +774,7 @@ if (STATE.rows.length === 0){
         try {
           const stream   = els.video.srcObject;
           const track    = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
-          const settings = track && track.getSettings ? track.getSettings() : {};
+        const settings = track && track.getSettings ? track.getSettings() : {};
           if (settings && settings.deviceId){
             if (settings.facingMode === 'environment') {
               localStorage.setItem('scanner.backDeviceId', settings.deviceId);
@@ -771,7 +816,7 @@ if (STATE.rows.length === 0){
 
   // --- Via nativa se disponibile, altrimenti ZXing ---
   async function startScan(){
-    try { window.__startScan = startScan; } catch(_) {}
+    try { window.__startScan = startScan; } catch(_){}
     openModal("Preparazione scansione…");
 
     const ua = navigator.userAgent || "";
@@ -806,7 +851,7 @@ if (STATE.rows.length === 0){
 
       setTimeout(() => {
         if (_scanning && isSafari) {
-          try { stopScan(); } catch(_) {}
+          try { stopScan(); } catch(_){}
           startScanZXing();
         }
       }, 2000);
@@ -829,7 +874,7 @@ if (STATE.rows.length === 0){
       requestAnimationFrame(loop);
     } catch(err){
       els.status.textContent = "Problema con la fotocamera. Provo fallback ZXing…";
-      try { stopScan(); } catch(_) {}
+      try { stopScan(); } catch(_){}
       await startScanZXing();
     }
   }
