@@ -596,13 +596,61 @@ async function readFileAsArrayBuffer(file) {
     URL.revokeObjectURL(url);
   }
 
+  // Pulisce davvero tutto lo stato UI legato alla ricerca/scansione (senza rimuovere i dati caricati)
+  function resetAll(){
+    // Ferma qualsiasi scansione in corso e chiudi il modale
+    try { if (typeof stopScan === 'function') stopScan(); } catch(_){}
+
+    // Campo di ricerca
+    try { if (els.eanInput) { els.eanInput.value = ""; els.eanInput.blur(); } } catch(_){}
+
+    // Risultati e messaggi
+    try { if (els.grid) els.grid.innerHTML = ""; } catch(_){}
+    try { if (els.resultsCard) els.resultsCard.style.display = "none"; } catch(_){}
+    try { if (els.matchInfo) els.matchInfo.textContent = ""; } catch(_){}
+    try { if (els.fileInfo) els.fileInfo.textContent = ""; } catch(_){}
+    try { if (els.footerMsg) els.footerMsg.textContent = ""; } catch(_){}
+    try { if (els.hint) els.hint.textContent = "Prima carica il CSV o premi “Usa dati salvati”."; } catch(_){}
+
+    // Chip EAN frequenti
+    try { if (els.chips) els.chips.innerHTML = ""; } catch(_){}
+
+    // Stato scanner
+    try { const s = document.getElementById('scanStatus'); if (s) s.textContent = ""; } catch(_){}
+
+    // Reset delle colonne a quelle stimate, se i dati sono presenti
+    try {
+      if (STATE && STATE.headers && STATE.headers.length){
+        // Re-imposta colonna EAN
+        const guessE = typeof autoPickEanColumn === 'function' ? autoPickEanColumn(STATE.headers) : 0;
+        STATE.eanIdx = guessE;
+        if (els.eanColumn) els.eanColumn.value = String(guessE);
+        if (typeof buildIndex === 'function') buildIndex(STATE.eanIdx);
+
+        // Re-imposta colonna Articolo
+        if (typeof autoPickArticleColumn === 'function'){
+          const guessA = autoPickArticleColumn(STATE.headers);
+          STATE.articleIdx = guessA;
+          if (els.articleColumn) els.articleColumn.value = String(guessA);
+        }
+
+        // Aggiorna statistiche
+        if (typeof renderStats === 'function') renderStats();
+      }
+    } catch(_){}
+
+    // Reimposta "corrispondenza esatta" al default (checked)
+    try { if (els.exact) els.exact.checked = true; } catch(_){}
+  }
+
   // Events
   els.articleColumn?.addEventListener('change', () => { STATE.articleIdx = Number(els.articleColumn.value||0); renderStats(); });
   els.csvFile.addEventListener('change', (e) => { const f=e.target.files?.[0]; if (f) handleFile(f); });
   els.eanColumn.addEventListener('change', () => { STATE.eanIdx = parseInt(els.eanColumn.value,10)||0; buildIndex(STATE.eanIdx); renderChips(); if (els.resultsCard.style.display!=="none") doSearch(); });
   els.btnSearch.addEventListener('click', doSearch);
   els.eanInput.addEventListener('keydown', (e) => { if (e.key === "Enter") doSearch(); });
-  els.btnClear.addEventListener('click', () => {
+  els.btnClear.addEventListener('click', () => { resetAll(); return; /* below kept for reference but no-op */
+
     try { if (els.eanInput) els.eanInput.value = ""; } catch(_){}
     try { if (els.grid) els.grid.innerHTML = ""; } catch(_){}
     try { if (els.matchInfo) els.matchInfo.textContent = ""; } catch(_){}
@@ -879,7 +927,7 @@ async function readFileAsArrayBuffer(file) {
               const input = document.getElementById('eanInput');
               if (input) input.value = digits;
               stopScan();
-              if (typeof window.doSearch === 'function') window.doSearch();
+              if (typeof window.searchWholeArticleFromEAN === 'function') { window.searchWholeArticleFromEAN(digits); } else if (typeof window.doSearch === 'function') { window.doSearch(); } else { document.getElementById('btnSearch')?.click(); }
               return;
             }
           }
