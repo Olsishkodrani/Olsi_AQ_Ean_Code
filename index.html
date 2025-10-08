@@ -505,10 +505,10 @@ if (STATE.rows.length === 0){
 })();
 </script>
 
-<!-- ==== Scanner barcode: UI + logica (single-file, iOS Safari–ready) ==== -->
+<!-- ==== Scanner barcode: UI + logica (single-file, iOS-ready) + LINEA ROSSA ==== -->
 <script>
 (() => {
-  // --- CSS inline (non modifica gli stili esistenti) ---
+  // --- CSS inline ---
   const style = document.createElement('style');
   style.textContent = `
   /* Scanner modal */
@@ -519,10 +519,15 @@ if (STATE.rows.length === 0){
   .rowtop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
   .tiny{font-size:.85rem;opacity:.9}
   .badge{background:#1f6feb;border-radius:999px;padding:.1rem .5rem}
+  /* Overlay con riga rossa */
+  .scanViewport{position:relative}
+  .scanViewport #scanVideo{display:block}
+  .scanLine{position:absolute;left:4%;right:4%;top:50%;height:2px;background:rgba(255,0,0,.95);
+            box-shadow:0 0 8px rgba(255,0,0,.8),0 0 2px rgba(0,0,0,.6);transform:translateY(-1px);pointer-events:none;border-radius:2px}
   `;
   document.head.appendChild(style);
 
-  // --- Modal HTML creato dinamicamente ---
+  // --- Modal HTML ---
   const modal = document.createElement('div');
   modal.id = 'scanModal';
   modal.className = 'modal';
@@ -535,7 +540,10 @@ if (STATE.rows.length === 0){
         <div class="tiny">Inquadra il codice a barre <span class="badge">locale</span></div>
         <button id="btnScanClose" class="secondary" type="button">Chiudi</button>
       </div>
-      <video id="scanVideo" autoplay playsinline muted></video>
+      <div class="scanViewport">
+        <video id="scanVideo" autoplay playsinline muted></video>
+        <div class="scanLine" aria-hidden="true"></div>
+      </div>
       <div class="tiny" id="scanStatus" style="margin-top:6px;"></div>
     </div>`;
   document.body.appendChild(modal);
@@ -555,7 +563,7 @@ if (STATE.rows.length === 0){
   let _zxingReader = null;
   let _zxingControls = null;
 
-  // --- Inserimento / aggancio bottone (se non già presente in markup) ---
+  // --- Inserimento/aggancio bottone ---
   function insertScanButton(){
     const existing = document.getElementById('btnScan');
     if (existing){
@@ -615,7 +623,7 @@ if (STATE.rows.length === 0){
     });
   }
 
-  // --- Fallback: ZXing (iOS Safari & assenza BarcodeDetector) con posteriore stabile ---
+  // --- Fallback ZXing con posteriore stabile ---
   async function startScanZXing(){
     try{
       openModal("Avvio fotocamera (ZXing)…");
@@ -653,7 +661,7 @@ if (STATE.rows.length === 0){
         } catch(_){}
       }
 
-      // 1) Prima scelta: constraints con facingMode 'environment' (preferibile su iOS)
+      // 1) Preferisci constraints con facingMode environment
       if (typeof _zxingReader.decodeFromConstraints === 'function'){
         try {
           const constraints = { video: { facingMode: { ideal: 'environment' } }, audio: false };
@@ -662,14 +670,14 @@ if (STATE.rows.length === 0){
           els.status.textContent = "Inquadra il codice…";
           setTimeout(captureAndStoreDeviceId, 300);
           return;
-        } catch(e){ /* proseguiamo */ }
+        } catch(e){ /* fallback */ }
       }
 
-      // 2) Seconda scelta: usa l'ID della back già memorizzato (se esiste)
+      // 2) Usa l'ID della back salvato
       let deviceId = null;
       try { deviceId = localStorage.getItem('scanner.backDeviceId') || null; } catch(_){}
 
-      // 3) Terza scelta: stima con enumerateDevices
+      // 3) Oppure stima via enumerateDevices
       if (!deviceId && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices){
         const all = await navigator.mediaDevices.enumerateDevices().catch(()=>[]);
         const cams = (all || []).filter(d => d && d.kind === 'videoinput');
@@ -677,7 +685,7 @@ if (STATE.rows.length === 0){
         if (back) deviceId = back.deviceId;
       }
 
-      // 4) Avvia con deviceId (o default se indefinito)
+      // 4) Avvia con deviceId (o default)
       _zxingControls = await _zxingReader.decodeFromVideoDevice(deviceId, els.video, onResult);
       _scanning = true;
       els.status.textContent = "Inquadra il codice…";
@@ -687,7 +695,7 @@ if (STATE.rows.length === 0){
     }
   }
 
-  // --- Primaria: BarcodeDetector se disponibile, altrimenti ZXing ---
+  // --- Via nativa se disponibile, altrimenti ZXing ---
   async function startScan(){
     try { window.__startScan = startScan; } catch(_) {}
     openModal("Preparazione scansione…");
@@ -722,7 +730,6 @@ if (STATE.rows.length === 0){
       _scanning = true;
       els.status.textContent = "Inquadra il codice…";
 
-      // Se in 2s non rileva (o Safari capriccioso), commuta su ZXing
       setTimeout(() => {
         if (_scanning && isSafari) {
           try { stopScan(); } catch(_) {}
@@ -759,7 +766,7 @@ if (STATE.rows.length === 0){
     }
   }
 
-  // --- Wiring robusto ---
+  // --- Wiring ---
   (function initScannerUI(){
     function wire(){
       try{
