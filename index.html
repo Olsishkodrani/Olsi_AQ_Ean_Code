@@ -83,9 +83,9 @@
           <label for="eanColumn">Colonna EAN</label>
           <select id="eanColumn" disabled></select>
           <div>
-          <label for="articleColumn">Colonna Articolo</label>
-          <select id="articleColumn" disabled></select>
-        </div>
+            <label for="articleColumn">Colonna Articolo</label>
+            <select id="articleColumn" disabled></select>
+          </div>
         </div>
         <div>
           <label for="eanInput">Cerca per EAN</label>
@@ -240,20 +240,6 @@
   }
 
   function autoPickEanColumn(headers){
-  function autoPickArticleColumn(headers){
-    const candidates = ["CODICE_ARTICOLO","CODICE ARTICOLO","ARTICOLO","CODICEARTICOLO","CODICE PRODOTTO","CODICEPRODOTTO","ITEM CODE","ITEM","SKU","STYLE","MODELLO","COD. ARTICOLO","COD_ART"];
-    const U = headers.map(h => String(h).toUpperCase().trim());
-    for (const cand of candidates) {
-      const idx = U.indexOf(cand);
-      if (idx !== -1) return idx;
-    }
-    // fallback: if there's a column containing hyphens it's often the articolo code
-    for (let i=0;i<U.length;i++){
-      if (/-/.test(U[i])) return i;
-    }
-    return 0;
-  }
-
     const candidates = ["EAN","BARCODE","CODICE EAN","CODICEEAN","CODICE_A_BARRE","CODICE A BARRE","BAR CODE","UPC","GTIN","CODICE ARTICOLO","CODICE_ARTICOLO","CODICE"];
     const U = headers.map(h => String(h).toUpperCase().trim());
     for (const cand of candidates) {
@@ -265,6 +251,17 @@
     }
     return 0;
   }
+  function autoPickArticleColumn(headers){
+    const candidates = ["CODICE_ARTICOLO","CODICE ARTICOLO","ARTICOLO","CODICEARTICOLO","CODICE PRODOTTO","CODICEPRODOTTO","ITEM CODE","ITEM","SKU","STYLE","MODELLO","COD. ARTICOLO","COD_ART"];
+    const U = headers.map(h => String(h).toUpperCase().trim());
+    for (const cand of candidates) {
+      const idx = U.indexOf(cand);
+      if (idx !== -1) return idx;
+    }
+    for (let i=0;i<U.length;i++){ if (/-/.test(U[i])) return i; }
+    return 0;
+  }
+
 
   function buildIndex(eanIdx){
     STATE.index = new Map();
@@ -289,6 +286,18 @@
   }
 
   function fillEanColumnSelect(){
+    els.eanColumn.innerHTML = "";
+    STATE.headers.forEach((h, idx) => {
+      const opt = document.createElement("option");
+      opt.value = idx;
+      opt.textContent = h || `Colonna ${idx+1}`;
+      els.eanColumn.appendChild(opt);
+    });
+    const guess = autoPickEanColumn(STATE.headers);
+    els.eanColumn.value = String(guess);
+    STATE.eanIdx = guess;
+    els.eanColumn.disabled = false;
+  }
   function fillArticleColumnSelect(){
     if (!els.articleColumn) return;
     els.articleColumn.innerHTML = "";
@@ -304,18 +313,6 @@
     els.articleColumn.disabled = false;
   }
 
-    els.eanColumn.innerHTML = "";
-    STATE.headers.forEach((h, idx) => {
-      const opt = document.createElement("option");
-      opt.value = idx;
-      opt.textContent = h || `Colonna ${idx+1}`;
-      els.eanColumn.appendChild(opt);
-    });
-    const guess = autoPickEanColumn(STATE.headers);
-    els.eanColumn.value = String(guess);
-    STATE.eanIdx = guess;
-    els.eanColumn.disabled = false;
-  }
 
   function renderChips(){
     els.chips.innerHTML = "";
@@ -436,7 +433,6 @@ if (STATE.rows.length === 0){
       }
     }
     
-  // Cerca tutte le righe dello stesso articolo partendo da un EAN scansionato.
   function searchWholeArticleFromEAN(eanDigits){
     if (!STATE || !STATE.rows || STATE.rows.length === 0){
       alert("Prima carica un CSV (o premi 'Usa dati salvati').");
@@ -446,12 +442,10 @@ if (STATE.rows.length === 0){
     if (!ean) { return; }
     const arrIdx = STATE.index && STATE.index.get ? (STATE.index.get(ean) || []) : [];
     if (!arrIdx.length){
-      // fallback: fai la ricerca standard per EAN
       if (els && els.eanInput) els.eanInput.value = ean;
       if (typeof doSearch === 'function') doSearch();
       return;
     }
-    // Prendi il/i CODICE_ARTICOLO collegati a questo EAN e rimuovi le ultime 3 cifre/lettere
     const N = 3;
     const stems = new Set();
     for (const i of arrIdx){
@@ -462,12 +456,10 @@ if (STATE.rows.length === 0){
       stems.add(stem.toLowerCase());
     }
     if (!stems.size){
-      // Se la colonna articolo non è impostata, ripiega su ricerca EAN
       if (els && els.eanInput) els.eanInput.value = ean;
       if (typeof doSearch === 'function') doSearch();
       return;
     }
-    // Filtra tutte le righe che iniziano con uno di questi prefissi articolo
     const matches = [];
     const ai = STATE.articleIdx ?? 0;
     for (let r=0; r<STATE.rows.length; r++){
@@ -476,15 +468,12 @@ if (STATE.rows.length === 0){
         if (v.startsWith(st)) { matches.push(STATE.rows[r]); break; }
       }
     }
-    // Mostra risultati evidenziando la colonna articolo
     const savedIdx = STATE.eanIdx;
     STATE.eanIdx = ai;
     showResults(matches, false, `articolo (prefisso senza ultime 3) da EAN ${ean}`);
     STATE.eanIdx = savedIdx;
   }
-  // Esporta su window per l'uso dal modulo scanner
   window.searchWholeArticleFromEAN = searchWholeArticleFromEAN;
-  // Esporta anche doSearch come fallback
   window.doSearch = (typeof doSearch === 'function') ? doSearch : undefined;
 showResults(matches, exact, queryRaw);
   }
@@ -838,7 +827,7 @@ showResults(matches, exact, queryRaw);
               const input = document.getElementById('eanInput');
               if (input) input.value = digits;
               stopScan();
-              if (typeof window.searchWholeArticleFromEAN === 'function') { window.searchWholeArticleFromEAN(digits); } else if (typeof window.doSearch === 'function') { window.doSearch(); } else { document.getElementById('btnSearch')?.click(); }
+              if (typeof window.doSearch === 'function') window.doSearch();
               return;
             }
           }
