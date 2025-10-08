@@ -93,7 +93,7 @@
           <button id="btnSearch">Cerca</button>
           <button id="btnClear" class="secondary">Pulisci</button>
           <button id="btnShowAll" class="secondary">Mostra tutte</button>
-        <button id="btnScan" class="secondary" type="button" onclick="(window.startScan||window.__startScan||function(){alert(\'Scanner non inizializzato\')})()">Scansiona</button>
+        <button id="btnScan" class="secondary" type="button" onclick="window.__startScan && window.__startScan(); return false;">Scansiona</button>
 </div>
       </div>
 
@@ -505,12 +505,13 @@ if (STATE.rows.length === 0){
 })();
 </script>
 
-<!-- ==== Scanner barcode: single-file (iOS-ready) + overlay + lookup articolo (no flicker, guaranteed write) ==== -->
+<!-- ==== Scanner barcode: UI + logica (single-file, iOS-ready) + LINEA ROSSA ==== -->
 <script>
 (() => {
   // --- CSS inline ---
   const style = document.createElement('style');
   style.textContent = `
+  /* Scanner modal */
   .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:9999}
   .modal.open{display:flex}
   .modal .sheet{background:var(--card,#111);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;width:min(92vw,720px);box-shadow:0 10px 30px rgba(0,0,0,.35)}
@@ -518,10 +519,11 @@ if (STATE.rows.length === 0){
   .rowtop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
   .tiny{font-size:.85rem;opacity:.9}
   .badge{background:#1f6feb;border-radius:999px;padding:.1rem .5rem}
+  /* Overlay con riga rossa */
   .scanViewport{position:relative}
   .scanViewport #scanVideo{display:block}
-  .scanLine{position:absolute;left:4%;right:4%;top:50%;height:2px;background:rgba(255,0,0,.95);box-shadow:0 0 8px rgba(255,0,0,.8),0 0 2px rgba(0,0,0,.6);transform:translateY(-1px);pointer-events:none;border-radius:2px}
-  .stealthScan{ color: transparent !important; caret-color: transparent !important; text-shadow: none !important; }
+  .scanLine{position:absolute;left:4%;right:4%;top:50%;height:2px;background:rgba(255,0,0,.95);
+            box-shadow:0 0 8px rgba(255,0,0,.8),0 0 2px rgba(0,0,0,.6);transform:translateY(-1px);pointer-events:none;border-radius:2px}
   `;
   document.head.appendChild(style);
 
@@ -561,301 +563,31 @@ if (STATE.rows.length === 0){
   let _zxingReader = null;
   let _zxingControls = null;
 
-  // Helpers
-  const _slug = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
-  const _digits = s => String(s||'').replace(/\D+/g,'');
-  const _dropLast3 = s => { const t = String(s||'').trim(); return t.length > 3 ? t.slice(0, -3) : t; };
-
-  function triggerSearch(){
-    try { if (typeof window.doSearch === 'function') return window.doSearch(); } catch(_){}
-    try { if (typeof doSearch === 'function') return doSearch(); } catch(_){}
-    const btn = document.getElementById('btnSearch');
-    if (btn && typeof btn.click === 'function') btn.click();
-  }
-
-  // === Core: EAN -> CODICE_ARTICOLO -> base (drop last 3) ===
-  
-function performArticleSearchFromEAN(eanDigits){
-  // Lock di sessione: esegui una sola volta per scansione
-  if (window.__autoSearchBusy) return;
-  window.__autoSearchBusy = true;
-
-  // Chiudi la camera subito per evitare risultati multipli
-  try { stopScan(); } catch(_){}
-
-  function triggerSearch(){
-    try { if (typeof window.doSearch === 'function') return window.doSearch(); } catch(_){}
-    try { if (typeof doSearch === 'function') return doSearch(); } catch(_){}
-    const btn = document.getElementById('btnSearch');
-    if (btn && typeof btn.click === 'function') btn.click();
-  }
-
-  const _slug = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
-  const _digits = s => String(s||'').replace(/\D+/g,'');
-  const _dropLast3 = s => { const t = String(s||'').trim(); return t.length > 3 ? t.slice(0, -3) : t; };
-
-  // Writer sicuro (scrive solo se cambia davvero, e solo una volta)
-  function writeAndSearch(baseCode){
-    const input = document.getElementById('eanInput');
-    if (!input) return;
-    const prevProg = window.__lastProgrammaticValue || "";
-    if (baseCode && baseCode !== prevProg){
-      input.value = baseCode;
-      window.__lastProgrammaticValue = baseCode;
+  // --- Inserimento/aggancio bottone ---
+  function insertScanButton(){
+    const existing = document.getElementById('btnScan');
+    if (existing){
+      existing.addEventListener('click', startScan);
+      window.__startScan = startScan;
+      return;
     }
-    triggerSearch();
-  }
+    const btn = document.createElement('button');
+    btn.id = 'btnScan';
+    btn.type = 'button';
+    btn.className = 'secondary';
+    btn.textContent = 'Scansiona';
+    btn.onclick = () => { startScan(); return false; };
 
-  // Core lookup (riutilizzabile su retry)
-  function tryLookupAndSearch(){
-    try {
-      const D = window.STATE || window._STATE || {};
-      const headers = D.headers || D.header || [];
-      const rows = D.rows || D.data || [];
-      let eanIdx = (typeof D.eanIndex === 'number') ? D.eanIndex : (typeof D.eanCol === 'number' ? D.eanCol : -1);
-      let artIdx = -1;
-
-      if (Array.isArray(headers) && headers.length){
-        const slugs = headers.map(_slug);
-        if (eanIdx < 0){
-          const keys = ['EAN','BARCODE','GTIN','UPC'];
-          for (let i=0;i<slugs.length;i++){ if (keys.some(k => slugs[i].includes(k))) { eanIdx = i; break; } }
-          if (eanIdx < 0) eanIdx = 0;
-        }
-        for (let i=0;i<slugs.length;i++){
-          if (slugs[i] === 'CODICEARTICOLO' || (slugs[i].includes('CODICE') && slugs[i].includes('ARTICOLO'))){ artIdx = i; break; }
-        }
-      }
-
-      if (eanIdx >= 0 && artIdx >= 0 && Array.isArray(rows) && rows.length){
-        const target = String(eanDigits);
-        let foundCode = null;
-
-        // Mappa rapida se presente
-        const maps = [D.eanMap, D.byEAN, D.index, D.map];
-        let rowIdxs = null;
-        for (const m of maps){
-          if (m && typeof m.get === 'function'){
-            rowIdxs = m.get(_digits(target)) || m.get(target) || null;
-            if (typeof rowIdxs === 'number') rowIdxs = [rowIdxs];
-            if (Array.isArray(rowIdxs) && rowIdxs.length) break;
-          }
-        }
-        if (Array.isArray(rowIdxs) && rowIdxs.length){
-          const r = rowIdxs[0];
-          const row = rows[r] || [];
-          foundCode = String(row[artIdx] ?? '').trim();
-        } else {
-          // Scansione lineare
-          for (let r=0;r<rows.length;r++){
-            const row = rows[r] || [];
-            const cellEAN = _digits(row[eanIdx] ?? '');
-            if (cellEAN === target){
-              foundCode = String(row[artIdx] ?? '').trim();
-              if (foundCode) break;
-            }
-          }
-        }
-
-        if (foundCode){
-          writeAndSearch(_dropLast3(foundCode));
-          return true;
-        }
-      }
-    } catch(e){ console.warn("Article lookup via STATE failed:", e); }
-
-    // DOM quick check (se tabella già renderizzata)
-    try {
-      const table = document.querySelector('table');
-      if (table){
-        const ths = Array.from(table.querySelectorAll('thead th'));
-        const headersText = ths.map(th => th.textContent || '');
-        let artCol = -1;
-        for (let i=0;i<headersText.length;i++){
-          const s = _slug(headersText[i]);
-          if (s === 'CODICEARTICOLO' || (s.includes('CODICE') && s.includes('ARTICOLO'))){ artCol = i; break; }
-        }
-        const firstRow = table.querySelector('tbody tr');
-        if (artCol >= 0 && firstRow){
-          const tds = firstRow.querySelectorAll('td');
-          if (tds && tds.length > artCol){
-            const artCode = (tds[artCol].textContent || '').trim();
-            if (artCode){
-              writeAndSearch(_dropLast3(artCode));
-              return true;
-            }
-          }
-        }
-      }
-    } catch(e){ console.warn("DOM quick fallback failed:", e); }
-
-    return false;
-  }
-
-  // Primo tentativo immediato
-  if (tryLookupAndSearch()) return;
-
-  // Un solo retry ritardato (es. dati che arrivano a breve): evita loop
-  setTimeout(() => {
-    if (!tryLookupAndSearch()){
-      try { if (els && els.status) els.status.textContent = "Articolo non trovato per EAN " + eanDigits + "."; } catch(_){}
-      // Non scriviamo l'EAN e non rilanciamo altre ricerche: niente alternanza/loop
-    }
-  }, 350);
-}
-    // 1) Lookup in memoria (STATE)
-    try {
-      const D = window.STATE || window._STATE || {};
-      const headers = D.headers || D.header || [];
-      const rows = D.rows || D.data || [];
-      let eanIdx = (typeof D.eanIndex === 'number') ? D.eanIndex : (typeof D.eanCol === 'number' ? D.eanCol : -1);
-      let artIdx = -1;
-
-      if (Array.isArray(headers) && headers.length){
-        const slugs = headers.map(_slug);
-        if (eanIdx < 0){
-          const keys = ['EAN','BARCODE','GTIN','UPC'];
-          for (let i=0;i<slugs.length;i++){ if (keys.some(k => slugs[i].includes(k))) { eanIdx = i; break; } }
-          if (eanIdx < 0) eanIdx = 0;
-        }
-        for (let i=0;i<slugs.length;i++){
-          if (slugs[i] === 'CODICEARTICOLO' || (slugs[i].includes('CODICE') && slugs[i].includes('ARTICOLO'))){ artIdx = i; break; }
-        }
-      }
-
-      if (eanIdx >= 0 && artIdx >= 0 && Array.isArray(rows) && rows.length){
-        const target = String(eanDigits);
-        let foundCode = null;
-
-        const maps = [D.eanMap, D.byEAN, D.index, D.map];
-        let rowIdxs = null;
-        for (const m of maps){
-          if (m && typeof m.get === 'function'){
-            rowIdxs = m.get(_digits(target)) || m.get(target) || null;
-            if (typeof rowIdxs === 'number') rowIdxs = [rowIdxs];
-            if (Array.isArray(rowIdxs) && rowIdxs.length) break;
-          }
-        }
-        if (Array.isArray(rowIdxs) && rowIdxs.length){
-          const r = rowIdxs[0];
-          const row = rows[r] || [];
-          foundCode = String(row[artIdx] ?? '').trim();
-        } else {
-          for (let r=0;r<rows.length;r++){
-            const row = rows[r] || [];
-            const cellEAN = _digits(row[eanIdx] ?? '');
-            if (cellEAN === target){
-              foundCode = String(row[artIdx] ?? '').trim();
-              if (foundCode) break;
-            }
-          }
-        }
-
-        if (foundCode){
-          const base = _dropLast3(foundCode);
-          const input = document.getElementById('eanInput');
-          if (input){
-            const prevProg = window.__lastProgrammaticValue || "";
-            if (base !== prevProg){
-              input.value = base;
-              window.__lastProgrammaticValue = base;
-            }
-          }
-          triggerSearch();
-          return finalize();
-        }
-      }
-    } catch(e){ console.warn("Article lookup via STATE failed:", e); }
-
-    // 2) DOM rapido: se tabella già piena
-    try {
-      const table = document.querySelector('table');
-      if (table){
-        const ths = Array.from(table.querySelectorAll('thead th'));
-        const headersText = ths.map(th => th.textContent || '');
-        let artCol = -1;
-        for (let i=0;i<headersText.length;i++){
-          const s = _slug(headersText[i]);
-          if (s === 'CODICEARTICOLO' || (s.includes('CODICE') && s.includes('ARTICOLO'))){ artCol = i; break; }
-        }
-        const firstRow = table.querySelector('tbody tr');
-        if (artCol >= 0 && firstRow){
-          const tds = firstRow.querySelectorAll('td');
-          if (tds && tds.length > artCol){
-            const artCode = (tds[artCol].textContent || '').trim();
-            if (artCode){
-              const base = _dropLast3(artCode);
-              const input = document.getElementById('eanInput');
-              if (input){
-                const prevProg = window.__lastProgrammaticValue || "";
-                if (base !== prevProg){
-                  input.value = base;
-                  window.__lastProgrammaticValue = base;
-                }
-              }
-              triggerSearch();
-              return finalize();
-            }
-          }
-        }
-      }
-    } catch(e){ console.warn("DOM quick fallback failed:", e); }
-
-    // 3) Fallback STEALTH: scrivi EAN invisibile -> cerca -> leggi base -> sostituisci -> cerca
-    try {
-      const input = document.getElementById('eanInput');
-      if (!input){ finalize(); return; }
-      const prev = input.value;
-
-      input.classList.add('stealthScan');
-      input.value = String(eanDigits);
-      window.__lastProgrammaticValue = input.value;
-      triggerSearch();
-
-      setTimeout(() => {
-        try{
-          const table = document.querySelector('table');
-          let base = null;
-          if (table){
-            const ths = Array.from(table.querySelectorAll('thead th'));
-            const headersText = ths.map(th => th.textContent || '');
-            let artCol = -1;
-            for (let i=0;i<headersText.length;i++){
-              const s = (headersText[i]||'').toUpperCase();
-              if (s.includes('CODICE') && s.includes('ARTICOLO')){ artCol = i; break; }
-            }
-            if (artCol >= 0){
-              const firstRow = table.querySelector('tbody tr');
-              if (firstRow){
-                const tds = firstRow.querySelectorAll('td');
-                if (tds && tds.length > artCol){
-                  const artCode = (tds[artCol].textContent || '').trim();
-                  if (artCode) base = _dropLast3(artCode);
-                }
-              }
-            }
-          }
-
-          if (base){
-            if (base !== window.__lastProgrammaticValue){
-              input.value = base;
-              window.__lastProgrammaticValue = base;
-            }
-            input.classList.remove('stealthScan');
-            triggerSearch();
-            finalize();
-          } else {
-            input.classList.remove('stealthScan');
-            // Lascia l'EAN visibile per feedback
-            finalize();
-          }
-        } catch(_){
-          input.classList.remove('stealthScan');
-          finalize();
-        }
-      }, 240);
-    } catch(_){
-      finalize();
+    const searchBtn = document.getElementById('btnSearch');
+    const clearBtn  = document.getElementById('btnClear');
+    const showAllBtn= document.getElementById('btnShowAll');
+    const anchor = showAllBtn || clearBtn || searchBtn;
+    if (anchor && anchor.parentElement){
+      anchor.parentElement.insertBefore(btn, anchor.nextSibling);
+    } else {
+      const eanInput = document.getElementById('eanInput');
+      const parent = eanInput ? (eanInput.closest('.row,.actions,.buttons,form,.toolbar') || eanInput.parentElement) : null;
+      (parent || document.body).appendChild(btn);
     }
   }
 
@@ -867,11 +599,11 @@ function performArticleSearchFromEAN(eanDigits){
   }
   function stopScan(){
     _scanning = false;
-    try { if (_scanStream) _scanStream.getTracks().forEach(t => t.stop()); } catch(_){}
+    try { if (_scanStream) _scanStream.getTracks().forEach(t => t.stop()); } catch(_) {}
     _scanStream = null;
     els.video.srcObject = null;
-    try { if (_zxingControls && _zxingControls.stop) _zxingControls.stop(); } catch(_){}
-    try { if (_zxingReader && _zxingReader.reset) _zxingReader.reset(); } catch(_){}
+    try { if (_zxingControls && _zxingControls.stop) _zxingControls.stop(); } catch(_) {}
+    try { if (_zxingReader && _zxingReader.reset) _zxingReader.reset(); } catch(_) {}
     _zxingControls = null;
     _zxingReader = null;
     els.modal.classList.remove('open');
@@ -879,7 +611,7 @@ function performArticleSearchFromEAN(eanDigits){
     els.status.textContent = '';
   }
 
-  // --- ZXing loader ---
+  // --- Loader ZXing (CDN) ---
   function loadZXing(){
     return new Promise((resolve, reject) => {
       if (window.ZXing) return resolve(window.ZXing);
@@ -891,7 +623,7 @@ function performArticleSearchFromEAN(eanDigits){
     });
   }
 
-  // --- Fallback ZXing ---
+  // --- Fallback ZXing con posteriore stabile ---
   async function startScanZXing(){
     try{
       openModal("Avvio fotocamera (ZXing)…");
@@ -902,7 +634,12 @@ function performArticleSearchFromEAN(eanDigits){
         if (result && result.getText){
           const raw = String(result.getText());
           const digits = raw.replace(/\D+/g, "");
-          if (digits){ performArticleSearchFromEAN(digits); }
+          if (digits){
+            const input = document.getElementById('eanInput');
+            if (input) input.value = digits;
+            stopScan();
+            if (typeof window.doSearch === 'function') window.doSearch();
+          }
         }
         if (err && !(err instanceof ZX.NotFoundException)) {
           els.status.textContent = "Errore scansione: " + (err.message || String(err));
@@ -915,12 +652,16 @@ function performArticleSearchFromEAN(eanDigits){
           const track    = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
           const settings = track && track.getSettings ? track.getSettings() : {};
           if (settings && settings.deviceId){
-            if (settings.facingMode === 'environment') localStorage.setItem('scanner.backDeviceId', settings.deviceId);
-            else if (settings.facingMode === 'user')   localStorage.setItem('scanner.frontDeviceId', settings.deviceId);
+            if (settings.facingMode === 'environment') {
+              localStorage.setItem('scanner.backDeviceId', settings.deviceId);
+            } else if (settings.facingMode === 'user') {
+              localStorage.setItem('scanner.frontDeviceId', settings.deviceId);
+            }
           }
         } catch(_){}
       }
 
+      // 1) Preferisci constraints con facingMode environment
       if (typeof _zxingReader.decodeFromConstraints === 'function'){
         try {
           const constraints = { video: { facingMode: { ideal: 'environment' } }, audio: false };
@@ -929,11 +670,14 @@ function performArticleSearchFromEAN(eanDigits){
           els.status.textContent = "Inquadra il codice…";
           setTimeout(captureAndStoreDeviceId, 300);
           return;
-        } catch(e){}
+        } catch(e){ /* fallback */ }
       }
 
+      // 2) Usa l'ID della back salvato
       let deviceId = null;
       try { deviceId = localStorage.getItem('scanner.backDeviceId') || null; } catch(_){}
+
+      // 3) Oppure stima via enumerateDevices
       if (!deviceId && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices){
         const all = await navigator.mediaDevices.enumerateDevices().catch(()=>[]);
         const cams = (all || []).filter(d => d && d.kind === 'videoinput');
@@ -941,6 +685,7 @@ function performArticleSearchFromEAN(eanDigits){
         if (back) deviceId = back.deviceId;
       }
 
+      // 4) Avvia con deviceId (o default)
       _zxingControls = await _zxingReader.decodeFromVideoDevice(deviceId, els.video, onResult);
       _scanning = true;
       els.status.textContent = "Inquadra il codice…";
@@ -950,11 +695,9 @@ function performArticleSearchFromEAN(eanDigits){
     }
   }
 
-  // --- Nativo o ZXing ---
+  // --- Via nativa se disponibile, altrimenti ZXing ---
   async function startScan(){
-    // reset lock per nuova sessione di scansione
-    try { window.__autoSearchBusy = false; } catch(_) {}
-
+    try { window.__startScan = startScan; } catch(_) {}
     openModal("Preparazione scansione…");
 
     const ua = navigator.userAgent || "";
@@ -976,8 +719,12 @@ function performArticleSearchFromEAN(eanDigits){
 
     try {
       els.status.textContent = "Avvio fotocamera…";
-      _detector = _detector || new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code'] });
-      _scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      _detector = _detector || new BarcodeDetector({ formats: [
+        'ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code'
+      ]});
+      _scanStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } }, audio: false
+      });
       els.video.srcObject = _scanStream;
       await els.video.play().catch(()=>{});
       _scanning = true;
@@ -985,7 +732,7 @@ function performArticleSearchFromEAN(eanDigits){
 
       setTimeout(() => {
         if (_scanning && isSafari) {
-          try { stopScan(); } catch(_){}
+          try { stopScan(); } catch(_) {}
           startScanZXing();
         }
       }, 2000);
@@ -998,7 +745,13 @@ function performArticleSearchFromEAN(eanDigits){
             const preferred = codes.find(c => /^(ean_13|ean_8|upc_a|upc_e)$/i.test(c.format)) || codes[0];
             const raw = (preferred.rawValue || "").toString();
             const digits = raw.replace(/\D+/g, "");
-            if (digits){ performArticleSearchFromEAN(digits); return; }
+            if (digits){
+              const input = document.getElementById('eanInput');
+              if (input) input.value = digits;
+              stopScan();
+              if (typeof window.doSearch === 'function') window.doSearch();
+              return;
+            }
           }
         } catch(err){
           els.status.textContent = "Errore scansione: " + (err && err.message ? err.message : String(err));
@@ -1008,34 +761,33 @@ function performArticleSearchFromEAN(eanDigits){
       requestAnimationFrame(loop);
     } catch(err){
       els.status.textContent = "Problema con la fotocamera. Provo fallback ZXing…";
-      try { stopScan(); } catch(_){}
+      try { stopScan(); } catch(_) {}
       await startScanZXing();
     }
   }
 
-  // Espone sempre le funzioni globali + wiring robusto
-  try { window.__startScan = startScan; window.startScan = startScan; } catch(_){}
-  function wire(){
-    try{
-      const btn = document.getElementById('btnScan');
-      if (btn && !btn.dataset.wired){
-        btn.addEventListener('click', startScan);
-        btn.dataset.wired = "1";
+  // --- Wiring ---
+  (function initScannerUI(){
+    function wire(){
+      try{
+        insertScanButton();
+        const btn = document.getElementById('btnScan');
+        if (btn){
+          btn.addEventListener('click', startScan);
+          window.__startScan = startScan;
+        }
+        els.btnClose.addEventListener('click', stopScan);
+        document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && els.modal.classList.contains('open')) stopScan(); });
+      } catch(e){
+        console.error("Scanner UI wiring error:", e);
       }
-      els.btnClose.addEventListener('click', stopScan);
-      document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && els.modal.classList.contains('open')) stopScan(); });
-      // Delegato
-      document.addEventListener('click', function(ev){
-        const t = ev.target;
-        if (t && t.id === 'btnScan') try { startScan(); } catch(e){ console.error(e); }
-      }, {capture:true});
-    } catch(e){ console.error("Scanner UI wiring error:", e); }
-  }
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', wire);
-  } else {
-    wire();
-  }
+    }
+    if (document.readyState === 'loading'){
+      document.addEventListener('DOMContentLoaded', wire);
+    } else {
+      wire();
+    }
+  })();
 })();
 </script>
 <!-- ==== /Scanner barcode ==== -->
