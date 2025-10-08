@@ -505,7 +505,7 @@ if (STATE.rows.length === 0){
 })();
 </script>
 
-<!-- ==== Scanner barcode: single-file (iOS-ready) + overlay + articolo auto (no flicker) ==== -->
+<!-- ==== Scanner barcode: single-file (iOS-ready) + overlay + lookup articolo (no flicker) ==== -->
 <script>
 (() => {
   // --- CSS inline ---
@@ -516,7 +516,8 @@ if (STATE.rows.length === 0){
   .modal.open{display:flex}
   .modal .sheet{background:var(--card,#111);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;width:min(92vw,720px);box-shadow:0 10px 30px rgba(0,0,0,.35)}
   #scanVideo{width:100%;border-radius:12px;background:#000;max-height:70vh}
-  .rowtop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+  .rowtop{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:8px}
+  .rowtop>*:first-child{margin-right:auto}
   .tiny{font-size:.85rem;opacity:.9}
   .badge{background:#1f6feb;border-radius:999px;padding:.1rem .5rem}
   /* Overlay con riga rossa */
@@ -524,6 +525,7 @@ if (STATE.rows.length === 0){
   .scanViewport #scanVideo{display:block}
   .scanLine{position:absolute;left:4%;right:4%;top:50%;height:2px;background:rgba(255,0,0,.95);
             box-shadow:0 0 8px rgba(255,0,0,.8),0 0 2px rgba(0,0,0,.6);transform:translateY(-1px);pointer-events:none;border-radius:2px}
+  /* Stealth input: nasconde temporaneamente il testo durante fallback EAN->base */
   .stealthScan{ color: transparent !important; caret-color: transparent !important; text-shadow: none !important; }
   `;
   document.head.appendChild(style);
@@ -604,267 +606,144 @@ if (STATE.rows.length === 0){
     if (btn && typeof btn.click === 'function') btn.click();
   }
 
-  
+  // 🔎 Auto: da EAN -> CODICE_ARTICOLO -> taglia ultime 3 -> ricerca (no flicker)
+  function performArticleSearchFromEAN(eanDigits){
+    // Debounce / antirimbalzo
+    if (window.__autoSearchBusy) return;
+    window.__autoSearchBusy = true;
+    const finalize = () => { setTimeout(() => { window.__autoSearchBusy = false; }, 600); };
 
-function performArticleSearchFromEAN(eanDigits){
-  if (window.__autoSearchBusy) return;
-  window.__autoSearchBusy = true;
-  const finalize = () => { setTimeout(() => { window.__autoSearchBusy = false; }, 600); };
+    try { stopScan(); } catch(_){}
 
-  try { stopScan(); } catch(_){}
+    // 1) Dati in memoria (STATE) — nessun flicker
+    try {
+      const D = window.STATE || window._STATE || {};
+      const headers = D.headers || D.header || [];
+      const rows = D.rows || D.data || [];
+      let eanIdx = (typeof D.eanIndex === 'number') ? D.eanIndex : (typeof D.eanCol === 'number' ? D.eanCol : -1);
+      let artIdx = -1;
 
-  function triggerSearch(){
-    try { if (typeof window.doSearch === 'function') return window.doSearch(); } catch(_){}
-    try { if (typeof doSearch === 'function') return doSearch(); } catch(_){}
-    const btn = document.getElementById('btnSearch');
-    if (btn && typeof btn.click === 'function') btn.click();
-  }
-
-  const _slug = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
-  const _digits = s => String(s||'').replace(/\D+/g,'');
-  const _dropLast3 = s => { const t = String(s||'').trim(); return t.length > 3 ? t.slice(0, -3) : t; };
-
-  // 1) STATE-based (no flicker)
-  try {
-    const D = window.STATE || window._STATE || {};
-    const headers = D.headers || D.header || [];
-    const rows = D.rows || D.data || [];
-    let eanIdx = (typeof D.eanIndex === 'number') ? D.eanIndex : (typeof D.eanCol === 'number' ? D.eanCol : -1);
-    let artIdx = -1;
-
-    if (Array.isArray(headers) && headers.length){
-      const slugs = headers.map(_slug);
-      if (eanIdx < 0){
-        const keys = ['EAN','BARCODE','GTIN','UPC'];
-        for (let i=0;i<slugs.length;i++){ if (keys.some(k => slugs[i].includes(k))) { eanIdx = i; break; } }
-        if (eanIdx < 0) eanIdx = 0;
-      }
-      for (let i=0;i<slugs.length;i++){
-        if (slugs[i] === 'CODICEARTICOLO' || (slugs[i].includes('CODICE') && slugs[i].includes('ARTICOLO'))){ artIdx = i; break; }
-      }
-    }
-
-    if (eanIdx >= 0 && artIdx >= 0 && Array.isArray(rows) && rows.length){
-      const target = String(eanDigits);
-      let foundCode = null;
-
-      const maps = [D.eanMap, D.byEAN, D.index, D.map];
-      let rowIdxs = null;
-      for (const m of maps){
-        if (m && typeof m.get === 'function'){
-          rowIdxs = m.get(_digits(target)) || m.get(target) || null;
-          if (typeof rowIdxs === 'number') rowIdxs = [rowIdxs];
-          if (Array.isArray(rowIdxs) && rowIdxs.length) break;
+      if (Array.isArray(headers) && headers.length){
+        const slugs = headers.map(_slug);
+        if (eanIdx < 0){
+          const keys = ['EAN','BARCODE','GTIN','UPC'];
+          for (let i=0;i<slugs.length;i++){ if (keys.some(k => slugs[i].includes(k))) { eanIdx = i; break; } }
+          if (eanIdx < 0) eanIdx = 0;
+        }
+        for (let i=0;i<slugs.length;i++){
+          if (slugs[i] === 'CODICEARTICOLO' || (slugs[i].includes('CODICE') && slugs[i].includes('ARTICOLO'))){ artIdx = i; break; }
         }
       }
-      if (Array.isArray(rowIdxs) && rowIdxs.length){
-        const r = rowIdxs[0];
-        const row = rows[r] || [];
-        foundCode = String(row[artIdx] ?? '').trim();
-      } else {
-        for (let r=0;r<rows.length;r++){
+
+      if (eanIdx >= 0 && artIdx >= 0 && Array.isArray(rows) && rows.length){
+        const target = String(eanDigits);
+        let foundCode = null;
+
+        // Eventuale mappa EAN->righe
+        const maps = [D.eanMap, D.byEAN, D.index, D.map];
+        let rowIdxs = null;
+        for (const m of maps){
+          if (m && typeof m.get === 'function'){
+            rowIdxs = m.get(_digits(target)) || m.get(target) || null;
+            if (typeof rowIdxs === 'number') rowIdxs = [rowIdxs];
+            if (Array.isArray(rowIdxs) && rowIdxs.length) break;
+          }
+        }
+        if (Array.isArray(rowIdxs) && rowIdxs.length){
+          const r = rowIdxs[0];
           const row = rows[r] || [];
-          const cellEAN = _digits(row[eanIdx] ?? '');
-          if (cellEAN === target){
-            foundCode = String(row[artIdx] ?? '').trim();
-            if (foundCode) break;
+          foundCode = String(row[artIdx] ?? '').trim();
+        } else {
+          // Scansione lineare
+          for (let r=0;r<rows.length;r++){
+            const row = rows[r] || [];
+            const cellEAN = _digits(row[eanIdx] ?? '');
+            if (cellEAN === target){
+              foundCode = String(row[artIdx] ?? '').trim();
+              if (foundCode) break;
+            }
           }
         }
-      }
 
-      if (foundCode){
-        const base = _dropLast3(foundCode);
-        const input = document.getElementById('eanInput');
-        if (input) input.value = base;
-        triggerSearch();
-        return finalize();
-      }
-    }
-  } catch(e){ console.warn("Article lookup via STATE failed:", e); }
-
-  // 2) DOM rapido (se già renderizzato) - no EAN nell'input
-  try {
-    const table = document.querySelector('table');
-    if (table){
-      const ths = Array.from(table.querySelectorAll('thead th'));
-      const headersText = ths.map(th => th.textContent || '');
-      let artCol = -1;
-      for (let i=0;i<headersText.length;i++){
-        const s = _slug(headersText[i]);
-        if (s === 'CODICEARTICOLO' || (s.includes('CODICE') && s.includes('ARTICOLO'))){ artCol = i; break; }
-      }
-      const firstRow = table.querySelector('tbody tr');
-      if (artCol >= 0 && firstRow){
-        const tds = firstRow.querySelectorAll('td');
-        if (tds && tds.length > artCol){
-          const artCode = (tds[artCol].textContent || '').trim();
-          if (artCode){
-            const base = _dropLast3(artCode);
-            const input = document.getElementById('eanInput');
-            if (input) input.value = base;
-            triggerSearch();
-            return finalize();
-          }
+        if (foundCode){
+          const base = _dropLast3(foundCode);
+          const input = document.getElementById('eanInput');
+          if (input) input.value = base;
+          triggerSearch();
+          return finalize();
         }
       }
-    }
-  } catch(e){ console.warn("DOM quick fallback failed:", e); }
+    } catch(e){ console.warn("Article lookup via STATE failed:", e); }
 
-  // 3) Fallback 'stealth': usa l'EAN per una sola ricerca, ma lo rende invisibile durante lo step
-  try {
-    const input = document.getElementById('eanInput');
-    const prev = input ? input.value : '';
-    if (input){
-      input.classList.add('stealthScan');
-      input.value = String(eanDigits);
-    }
-    triggerSearch();
-
-    setTimeout(() => {
-      try{
-        const table = document.querySelector('table'); if (!table) { if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
+    // 2) DOM rapido: se tabella già piena, niente EAN nell'input
+    try {
+      const table = document.querySelector('table');
+      if (table){
         const ths = Array.from(table.querySelectorAll('thead th'));
         const headersText = ths.map(th => th.textContent || '');
         let artCol = -1;
         for (let i=0;i<headersText.length;i++){
-          const s = (headersText[i]||'').toUpperCase();
-          if (s.includes('CODICE') && s.includes('ARTICOLO')){ artCol = i; break; }
+          const s = _slug(headersText[i]);
+          if (s === 'CODICEARTICOLO' || (s.includes('CODICE') && s.includes('ARTICOLO'))){ artCol = i; break; }
         }
-        if (artCol === -1){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
-        const firstRow = table.querySelector('tbody tr'); if (!firstRow){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
-        const tds = firstRow.querySelectorAll('td'); if (!tds || tds.length <= artCol){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
-        const artCode = (tds[artCol].textContent || '').trim(); if (!artCode){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } finalize(); return; }
-
-        const base = _dropLast3(artCode);
-        if (input){
-          input.value = base;
-          input.classList.remove('stealthScan');
-        }
-        triggerSearch();
-        finalize();
-      } catch(_){
-        if (input){ input.classList.remove('stealthScan'); input.value = prev; }
-        finalize();
-      }
-    }, 220);
-  } catch(_){
-    finalize();
-  }
-}
-, 600); };
-
-  // Chiudi subito lo scanner (evita multiple callback in coda)
-  try { stopScan(); } catch(_){}
-
-  // Lancia la ricerca rispettando l’app
-  function triggerSearch(){
-    try { if (typeof window.doSearch === 'function') return window.doSearch(); } catch(_){}
-    try { if (typeof doSearch === 'function') return doSearch(); } catch(_){}
-    const btn = document.getElementById('btnSearch');
-    if (btn && typeof btn.click === 'function') btn.click();
-  }
-
-  // Utility
-  const _slug = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
-  const _digits = s => String(s||'').replace(/\D+/g,'');
-  const _dropLast3 = s => { const t = String(s||'').trim(); return t.length > 3 ? t.slice(0, -3) : t; };
-
-  // 1) Tentativo principale: usa i dati in memoria (STATE) → nessun flicker
-  try {
-    const D = window.STATE || window._STATE || {};
-    const headers = D.headers || D.header || [];
-    const rows = D.rows || D.data || [];
-    let eanIdx = (typeof D.eanIndex === 'number') ? D.eanIndex : (typeof D.eanCol === 'number' ? D.eanCol : -1);
-    let artIdx = -1;
-
-    if (Array.isArray(headers) && headers.length){
-      const slugs = headers.map(_slug);
-      if (eanIdx < 0){
-        const keys = ['EAN','BARCODE','GTIN','UPC'];
-        for (let i=0;i<slugs.length;i++){ if (keys.some(k => slugs[i].includes(k))) { eanIdx = i; break; } }
-        if (eanIdx < 0) eanIdx = 0;
-      }
-      for (let i=0;i<slugs.length;i++){
-        if (slugs[i] === 'CODICEARTICOLO' || (slugs[i].includes('CODICE') && slugs[i].includes('ARTICOLO'))){ artIdx = i; break; }
-      }
-    }
-
-    if (eanIdx >= 0 && artIdx >= 0 && Array.isArray(rows) && rows.length){
-      const target = String(eanDigits);
-      let foundCode = null;
-
-      // Eventuale mappa EAN->righe
-      const maps = [D.eanMap, D.byEAN, D.index, D.map];
-      let rowIdxs = null;
-      for (const m of maps){
-        if (m && typeof m.get === 'function'){
-          rowIdxs = m.get(_digits(target)) || m.get(target) || null;
-          if (typeof rowIdxs === 'number') rowIdxs = [rowIdxs];
-          if (Array.isArray(rowIdxs) && rowIdxs.length) break;
-        }
-      }
-      if (Array.isArray(rowIdxs) && rowIdxs.length){
-        const r = rowIdxs[0];
-        const row = rows[r] || [];
-        foundCode = String(row[artIdx] ?? '').trim();
-      } else {
-        // Scansione lineare robusta
-        for (let r=0;r<rows.length;r++){
-          const row = rows[r] || [];
-          const cellEAN = _digits(row[eanIdx] ?? '');
-          if (cellEAN === target){
-            foundCode = String(row[artIdx] ?? '').trim();
-            if (foundCode) break;
+        const firstRow = table.querySelector('tbody tr');
+        if (artCol >= 0 && firstRow){
+          const tds = firstRow.querySelectorAll('td');
+          if (tds && tds.length > artCol){
+            const artCode = (tds[artCol].textContent || '').trim();
+            if (artCode){
+              const base = _dropLast3(artCode);
+              const input = document.getElementById('eanInput');
+              if (input) input.value = base;
+              triggerSearch();
+              return finalize();
+            }
           }
         }
       }
+    } catch(e){ console.warn("DOM quick fallback failed:", e); }
 
-      if (foundCode){
-        const base = _dropLast3(foundCode);
-        const input = document.getElementById('eanInput');
-        if (input) input.value = base;
-        triggerSearch();
-        return finalize();
+    // 3) Fallback stealth: EAN invisibile -> base -> ricerca (evita flicker visibile)
+    try {
+      const input = document.getElementById('eanInput');
+      const prev = input ? input.value : '';
+      if (input){
+        input.classList.add('stealthScan'); // nascondi testo
+        input.value = String(eanDigits);
       }
-    }
-  } catch(e){ console.warn("Article lookup via STATE failed:", e); }
+      triggerSearch();
 
-  // 2) Fallback DOM rapido: usa dati già presenti a schermo (NON scrive mai l'EAN) → niente alternanza
-  try {
-    const table = document.querySelector('table');
-    if (table){
-      const ths = Array.from(table.querySelectorAll('thead th'));
-      const headersText = ths.map(th => th.textContent || '');
-      let artCol = -1;
-      for (let i=0;i<headersText.length;i++){
-        const s = _slug(headersText[i]);
-        if (s === 'CODICEARTICOLO' || (s.includes('CODICE') && s.includes('ARTICOLO'))){ artCol = i; break; }
-      }
-      const firstRow = table.querySelector('tbody tr');
-      if (artCol >= 0 && firstRow){
-        const tds = firstRow.querySelectorAll('td');
-        if (tds && tds.length > artCol){
-          const artCode = (tds[artCol].textContent || '').trim();
-          if (artCode){
-            const base = _dropLast3(artCode);
-            const input = document.getElementById('eanInput');
-            if (input) input.value = base;
-            triggerSearch();
-            return finalize();
+      setTimeout(() => {
+        try{
+          const table = document.querySelector('table'); if (!table) { if (input){ input.classList.remove('stealthScan'); input.value = prev; } return finalize(); }
+          const ths = Array.from(table.querySelectorAll('thead th'));
+          const headersText = ths.map(th => th.textContent || '');
+          let artCol = -1;
+          for (let i=0;i<headersText.length;i++){
+            const s = (headersText[i]||'').toUpperCase();
+            if (s.includes('CODICE') && s.includes('ARTICOLO')){ artCol = i; break; }
           }
+          if (artCol === -1){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } return finalize(); }
+          const firstRow = table.querySelector('tbody tr'); if (!firstRow){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } return finalize(); }
+          const tds = firstRow.querySelectorAll('td'); if (!tds || tds.length <= artCol){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } return finalize(); }
+          const artCode = (tds[artCol].textContent || '').trim(); if (!artCode){ if (input){ input.classList.remove('stealthScan'); input.value = prev; } return finalize(); }
+
+          const base = _dropLast3(artCode);
+          if (input){
+            input.value = base;
+            input.classList.remove('stealthScan');
+          }
+          triggerSearch();
+          finalize();
+        } catch(_){
+          if (input){ input.classList.remove('stealthScan'); input.value = prev; }
+          finalize();
         }
-      }
+      }, 220);
+    } catch(_){
+      finalize();
     }
-  } catch(e){ console.warn("DOM quick fallback failed:", e); }
-
-  // 3) Se non troviamo nulla, NON scriviamo l’EAN (evita flicker). Mostra solo un messaggio di stato.
-  try {
-    const msg = "Articolo non trovato per EAN " + eanDigits + ". Carica il CSV o verifica le colonne.";
-    if (window.els && els.status) els.status.textContent = msg;
-  } catch(_){}
-  finalize();
-}
-
+  }
 
   // --- Apertura / chiusura modal ---
   function openModal(msg){
@@ -874,11 +753,11 @@ function performArticleSearchFromEAN(eanDigits){
   }
   function stopScan(){
     _scanning = false;
-    try { if (_scanStream) _scanStream.getTracks().forEach(t => t.stop()); } catch(_) {}
+    try { if (_scanStream) _scanStream.getTracks().forEach(t => t.stop()); } catch(_){}
     _scanStream = null;
     els.video.srcObject = null;
-    try { if (_zxingControls && _zxingControls.stop) _zxingControls.stop(); } catch(_) {}
-    try { if (_zxingReader && _zxingReader.reset) _zxingReader.reset(); } catch(_) {}
+    try { if (_zxingControls && _zxingControls.stop) _zxingControls.stop(); } catch(_){}
+    try { if (_zxingReader && _zxingReader.reset) _zxingReader.reset(); } catch(_){}
     _zxingControls = null;
     _zxingReader = null;
     els.modal.classList.remove('open');
@@ -920,7 +799,7 @@ function performArticleSearchFromEAN(eanDigits){
         try {
           const stream   = els.video.srcObject;
           const track    = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
-        const settings = track && track.getSettings ? track.getSettings() : {};
+          const settings = track && track.getSettings ? track.getSettings() : {};
           if (settings && settings.deviceId){
             if (settings.facingMode === 'environment') {
               localStorage.setItem('scanner.backDeviceId', settings.deviceId);
