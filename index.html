@@ -1111,16 +1111,61 @@ async function readFileAsArrayBuffer(file) {
         }
       }
       if (found){
-        let code = found.replace(/\s+/g, ' ').trim();
+        
+    // === MIGLIORA PRECISIONE OCR: stabilizzazione lettura ===
+    // Richiede 2 letture consecutive identiche prima di avviare la ricerca
+    window._ocrLastCode = window._ocrLastCode || null;
+    window._ocrStreak = window._ocrStreak || 0;
+    code = (code || '').trim();
+    let norm = (code + '').toUpperCase();
+
+    // Disambiguazione O->0 solo quando la O è tra due cifre (es. 12O34 -> 12034)
+    (function(){
+      let out = '';
+      for (let i = 0; i < norm.length; i++){
+        const ch = norm[i];
+        if (ch === 'O'){
+          const prevIsDigit = i>0 && /\d/.test(norm[i-1]);
+          const nextIsDigit = i<norm.length-1 && /\d/.test(norm[i+1]);
+          out += (prevIsDigit && nextIsDigit) ? '0' : 'O';
+        } else {
+          out += ch;
+        }
+      }
+      norm = out;
+    })();
+
+    // Scarta letture troppo brevi o rumorose
+    if (norm.replace(/[^A-Z0-9]/g,'').length < 5){
+      bannerOcr && (bannerOcr.textContent = 'Lettura instabile…');
+      continueScanning = true;
+      return; // non avviare la ricerca
+    }
+
+    if (window._ocrLastCode === norm){
+      window._ocrStreak += 1;
+    } else {
+      window._ocrLastCode = norm;
+      window._ocrStreak = 1;
+    }
+
+    if (window._ocrStreak < 2){
+      bannerOcr && (bannerOcr.textContent = 'Conferma lettura… (' + window._ocrStreak + '/2)');
+      continueScanning = true;
+      return; // attendi una seconda conferma uguale
+    }
+
+    // Lettura stabilizzata
+    code = norm;
+    let code = found.replace(/\s+/g, ' ').trim();
         code = code.replace(/^[\\s\\-_.:/]+|[\\s\\-_.:/]+$/g, '');
         const input = document.getElementById('eanInput');
         if (input){
           const fixed = disambiguateO0(code);
           input.value = fixed;
           // IMPORTANT: non forziamo la spunta di "Corrispondenza esatta". Rispettiamo lo stato dell'utente.
-          if (typeof window.doSearch === 'function') { window.doSearch(); }
-else if (typeof doSearch === 'function') { doSearch(); }
-else { document.getElementById('btnSearch')?.click(); }
+          if (typeof window.doSearch === 'function'){ window.doSearch(); }
+          else if (typeof doSearch === 'function'){ doSearch(); }
         }
         els.status.textContent = "Trovato: " + code;
         setTimeout(stopOcr, 300);
