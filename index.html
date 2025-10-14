@@ -1117,11 +1117,10 @@ async function readFileAsArrayBuffer(file) {
         if (input){
           const fixed = disambiguateO0(code);
           input.value = fixed;
-          // IMPORTANT: non forziamo la spunta di "Corrispondenza esatta". Rispettiamo lo stato dell'utente.
-          if (typeof window.doSearch === 'function'){ window.doSearch(); }
-          else if (typeof doSearch === 'function'){ doSearch(); }
-        }
-        els.status.textContent = "Trovato: " + code;
+          try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+if (typeof window.doSearch === 'function') { window.doSearch(); }
+else if (typeof doSearch === 'function') { doSearch(); }
+els.status.textContent = "Trovato: " + code;
         setTimeout(stopOcr, 300);
       } else {
         els.status.textContent = "Nessuna riga 'ART.CODE:' trovata. Continua a tenere fermo…";
