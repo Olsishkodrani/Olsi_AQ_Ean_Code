@@ -407,6 +407,23 @@
         return v;
       };
       const q = norm(queryRaw);
+      // Costruisci una regex che tenga conto delle ambiguità OCR: O/0, B/8, S/5
+      function makeAmbiguousRegex(str, exact){
+        if (!str) return null;
+        const map = { 'o':'[o0]', '0':'[o0]', 'b':'[b8]', '8':'[b8]', 's':'[s5]', '5':'[s5]' };
+        const escape = (ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let pat = '';
+        for (const ch of str){
+          const lower = ch.toLowerCase();
+          if (map[lower]) pat += map[lower];
+          else if (ch === ' ') pat += '\\s+'; // tolleranza su spazi
+          else pat += escape(lower);
+        }
+        return new RegExp(exact ? `^${pat}$` : pat, 'i');
+      }
+      const ambRe_exact = makeAmbiguousRegex(q, true);
+      const ambRe_contains = makeAmbiguousRegex(q, false);
+
       if (!q) { showResults([], exact, ""); return; }
       let matches = [];
       if (exact) {
@@ -414,7 +431,8 @@
           const row = STATE.rows[i];
           let ok = false;
           for (let c=0;c<row.length;c++){
-            if (norm(row[c]) === q) { ok = true; break; }
+            const cell = norm(row[c]);
+            if ((ambRe_exact && ambRe_exact.test(cell)) || cell === q) { ok = true; break; }
           }
           if (ok) matches.push(row);
         }
@@ -423,7 +441,8 @@
           const row = STATE.rows[i];
           let ok = false;
           for (let c=0;c<row.length;c++){
-            if (norm(row[c]).includes(q)) { ok = true; break; }
+            const cell = norm(row[c]);
+            if ((ambRe_contains && ambRe_contains.test(cell)) || cell.includes(q)) { ok = true; break; }
           }
           if (ok) matches.push(row);
         }
@@ -1118,21 +1137,15 @@ async function readFileAsArrayBuffer(file) {
           const fixed = disambiguateO0(code);
           input.value = fixed;
           // IMPORTANT: non forziamo la spunta di "Corrispondenza esatta". Rispettiamo lo stato dell'utente.
-          if (typeof window.doSearch === 'function'){ window.doSearch(); }
-          else if (typeof doSearch === 'function'){ doSearch(); }
-          // Trigger ricerca automatica in modo robusto
           try {
-            if (typeof window.doSearch === 'function') { window.doSearch(); }
-            else if (typeof doSearch === 'function') { doSearch(); }
+            if (typeof window.doSearch === 'function'){ window.doSearch(); }
+            else if (typeof doSearch === 'function'){ doSearch(); }
             else if (document.getElementById('btnSearch')) { document.getElementById('btnSearch').click(); }
-
-            // Notifica anche i listener sull'input, per sicurezza
             const ev1 = new Event('input', { bubbles: true });
             const ev2 = new Event('change', { bubbles: true });
             input.dispatchEvent(ev1);
             input.dispatchEvent(ev2);
           } catch(_) {}
-    
         }
         els.status.textContent = "Trovato: " + code;
         setTimeout(stopOcr, 300);
@@ -1164,29 +1177,20 @@ async function readFileAsArrayBuffer(file) {
 // Heuristic to fix common OCR confusions between letter 'O' and digit '0'
 function disambiguateO0(s){
   if (!s) return s;
-  // Uppercase and trim spaces
+  // Uppercase + strip spaces
   s = String(s).toUpperCase().replace(/\s+/g,'');
-  // Normalize dash variants to '-'
+  // Normalize dash variants
   s = s.replace(/[\u2010-\u2015]/g, '-');
   const digitCount = (s.match(/\d/g) || []).length;
-  const hasTrailingNumericSeg = /-\d{2,}(?:-|$)/.test(s);
-
-  // 1) Strong signals: 'O' near digits becomes '0'
-  // dOd -> d0d
+  const hasTrailingNumSeg = /-\d{2,}(?:-|$)/.test(s);
+  // O<->0 disambiguation near digits
   s = s.replace(/(\d)O(?=\d)/g, "$10");
-  // dO  -> d0
   s = s.replace(/(\d)O/g, "$10");
-  // Od  -> 0d
   s = s.replace(/O(\d)/g, "0$1");
-
-  // 2) End-of-segment 'O' before '-' is usually a zero in these codes
-  if (hasTrailingNumericSeg || digitCount >= 2){
-    s = s.replace(/O(?=-)/g, "0");
-  }
-
-  // 3) Extra OCR fixes near digits
-  s = s.replace(/(\d)I/g, "$11").replace(/I(\d)/g, "1$1"); // I -> 1 when adjacent to digit
-  s = s.replace(/(\d)B/g, "$18").replace(/B(\d)/g, "8$1"); // B -> 8 when adjacent to digit
+  if (hasTrailingNumSeg || digitCount>=2){ s = s.replace(/O(?=-)/g, "0"); }
+  // I/B common confusions near digits
+  s = s.replace(/(\d)I/g, "$11").replace(/I(\d)/g, "1$1");
+  s = s.replace(/(\d)B/g, "$18").replace(/B(\d)/g, "8$1");
   return s;
 }
 </script>
