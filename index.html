@@ -697,7 +697,10 @@ async function readFileAsArrayBuffer(file) {
   if (els.articleColumn) els.articleColumn.innerHTML = '<option>Carica un CSV…</option>';
   els.fileInfo.textContent = "";
   els.footerMsg.textContent = "Carica un CSV per iniziare. Supporto ; , \\t | e codifica Windows-1252/UTF-8.";
-})();
+}
+
+// Espone la funzione anche fuori dallo scope IIFE, per OCR e scanner
+window.doSearch = doSearch;)();
 </script>
 
 <!-- ==== Scanner barcode: UI + logica (single-file, iOS-ready) + LINEA ROSSA ==== -->
