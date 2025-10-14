@@ -64,6 +64,22 @@
   .chip { font-size:12px; padding:6px 10px; border-radius:999px; background:#0f1a3f; border:1px solid rgba(255,255,255,.08); color:#bcd1ef; cursor:pointer; user-select:none; }
   .banner { margin-top:10px; padding:10px 12px; border-radius:12px; background:#0b1330; border:1px solid rgba(255,255,255,.12); }
 </style>
+
+<style id="ui-override-hide-clear-showall">
+  #btnClear, #btnShowAll { display: none !important; }
+</style>
+
+<style id="ui-override-hide-chips-and-hint">
+  /* Nascondi suggerimenti dopo il caricamento CSV */
+  #chips, #hint { display: none !important; }
+</style>
+
+<style id="ui-override-hide-stats-and-banner">
+  /* Nasconde solo la UI informativa, senza toccare la logica */
+  #stats,
+  #stateBanner,
+  #stateBanner + .hr { display: none !important; }
+</style>
 </head>
 <body>
   <div class="container">
@@ -97,14 +113,14 @@
           <button id="btnSearch">Cerca</button>
           <button id="btnClear" class="secondary">Pulisci</button>
           <button id="btnShowAll" class="secondary">Mostra tutte</button>
-        <button id="btnScan" class="secondary" type="button" onclick="window.__startScan && window.__startScan(); return false;">Scansiona</button>
+        <button id="btnScan" class="secondary" type="button" onclick="window.__startScan && window.__startScan(); return false;">Scansiona B.C</button>
           <button id="btnOcrScan" class="secondary" type="button" onclick="window.__startOcrScan && window.__startOcrScan(); return false;">Scansione testo</button>
 </div>
       </div>
 
       <div class="row" style="margin-top:12px">
         <div class="checkbox">
-          <input type="checkbox" id="exact" checked>
+          <input type="checkbox" id="exact">
           <label for="exact" style="margin:0;">Corrispondenza esatta</label>
         </div>
         <div class="checkbox">
@@ -124,7 +140,7 @@
       <div class="hr"></div>
 
       <div class="row">
-        <div class="tiny ghost">Suggerimento: aggiungi questa pagina alla Home (Condividi → Aggiungi a Home) per aprirla come app.</div>
+        <div class="tiny ghost" style="display:none !important;">Suggerimento: aggiungi questa pagina alla Home (Condividi → Aggiungi a Home) per aprirla come app.</div>
       </div>
     </div>
 
@@ -1080,7 +1096,7 @@ async function readFileAsArrayBuffer(file) {
       const dataURL = els.canvas.toDataURL('image/png');
 
       els.status.textContent = "Elaborazione…";
-      const { data } = await window.Tesseract.recognize(dataURL, 'eng', {
+      const { data } = await window.Tesseract.recognize(dataURL, 'eng', { tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._/:',
         tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .:-_/\\\\',
       });
 
@@ -1099,7 +1115,8 @@ async function readFileAsArrayBuffer(file) {
         code = code.replace(/^[\\s\\-_.:/]+|[\\s\\-_.:/]+$/g, '');
         const input = document.getElementById('eanInput');
         if (input){
-          input.value = code;
+          const fixed = disambiguateO0(code);
+          input.value = fixed;
           // IMPORTANT: non forziamo la spunta di "Corrispondenza esatta". Rispettiamo lo stato dell'utente.
           if (typeof window.doSearch === 'function'){ window.doSearch(); }
           else if (typeof doSearch === 'function'){ doSearch(); }
@@ -1130,6 +1147,18 @@ async function readFileAsArrayBuffer(file) {
     wire();
   }
 })();
+
+// Heuristic to fix common OCR confusions between letter 'O' and digit '0'
+function disambiguateO0(s){
+  if (!s) return s;
+  s = String(s).toUpperCase();
+  // Prefer 0 when 'O' is adjacent to a digit or before a hyphen+digit
+  s = s.replace(/(\d)O(?=[\d\-._/:]|$)/g, "$10");
+  s = s.replace(/(^|[\-._/:])O(?=\d)/g, "$10");
+  s = s.replace(/(\d)O(?=-\d)/g, "$10");
+  s = s.replace(/O(?=-\d)/g, "0");
+  return s;
+}
 </script>
 <!-- ==== /OCR Scansione testo ==== -->
 </body>
