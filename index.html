@@ -1120,6 +1120,19 @@ async function readFileAsArrayBuffer(file) {
           // IMPORTANT: non forziamo la spunta di "Corrispondenza esatta". Rispettiamo lo stato dell'utente.
           if (typeof window.doSearch === 'function'){ window.doSearch(); }
           else if (typeof doSearch === 'function'){ doSearch(); }
+          // Trigger ricerca automatica in modo robusto
+          try {
+            if (typeof window.doSearch === 'function') { window.doSearch(); }
+            else if (typeof doSearch === 'function') { doSearch(); }
+            else if (document.getElementById('btnSearch')) { document.getElementById('btnSearch').click(); }
+
+            // Notifica anche i listener sull'input, per sicurezza
+            const ev1 = new Event('input', { bubbles: true });
+            const ev2 = new Event('change', { bubbles: true });
+            input.dispatchEvent(ev1);
+            input.dispatchEvent(ev2);
+          } catch(_) {}
+    
         }
         els.status.textContent = "Trovato: " + code;
         setTimeout(stopOcr, 300);
