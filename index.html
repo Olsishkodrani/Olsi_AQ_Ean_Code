@@ -1151,28 +1151,12 @@ async function readFileAsArrayBuffer(file) {
 // Heuristic to fix common OCR confusions between letter 'O' and digit '0'
 function disambiguateO0(s){
   if (!s) return s;
-  // Uppercase and strip diacritics, normalize common glyphs
-  s = String(s).toUpperCase().normalize('NFKD');
-  // Map common O-like/zero-like unicode to ASCII 0
-  s = s.replace(/[⁰º°]/g, '0'); // superscript zero, masculine ordinal, degree
-  s = s.replace(/[Ø∅⌀〇]/g, '0'); // various symbols sometimes seen
-  // Heuristic: within alphanumeric segments, if the segment contains any digit,
-  // treat every 'O' in that segment as a zero. Leave pure-letter segments untouched.
-  const parts = s.split(/([^A-Z0-9]+)/); // keep delimiters
-  for (let i = 0; i < parts.length; i++){
-    const seg = parts[i];
-    if (/^[A-Z0-9]+$/.test(seg)){
-      if (/[0-9]/.test(seg)){
-        parts[i] = seg.replace(/O/g, '0');
-      } else {
-        parts[i] = seg; // all letters → keep 'O'
-      }
-    }
-  }
-  s = parts.join('');
-  // Extra safety: if an 'O' is immediately next to a digit or inside a run of digits, flip it
-  s = s.replace(/(?<=\d)O(?=[^A-Z]|$)/g, '0');
-  s = s.replace(/(?<=\D)O(?=\d)/g, '0');
+  s = String(s).toUpperCase();
+  // Prefer 0 when 'O' is adjacent to a digit or before a hyphen+digit
+  s = s.replace(/(\d)O(?=[\d\-._/:]|$)/g, "$10");
+  s = s.replace(/(^|[\-._/:])O(?=\d)/g, "$10");
+  s = s.replace(/(\d)O(?=-\d)/g, "$10");
+  s = s.replace(/O(?=-\d)/g, "0");
   return s;
 }
 </script>
