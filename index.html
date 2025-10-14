@@ -697,10 +697,7 @@ async function readFileAsArrayBuffer(file) {
   if (els.articleColumn) els.articleColumn.innerHTML = '<option>Carica un CSV…</option>';
   els.fileInfo.textContent = "";
   els.footerMsg.textContent = "Carica un CSV per iniziare. Supporto ; , \\t | e codifica Windows-1252/UTF-8.";
-}
-
-// Espone la funzione anche fuori dallo scope IIFE, per OCR e scanner
-window.doSearch = doSearch;)();
+})();
 </script>
 
 <!-- ==== Scanner barcode: UI + logica (single-file, iOS-ready) + LINEA ROSSA ==== -->
@@ -1121,8 +1118,9 @@ window.doSearch = doSearch;)();
           const fixed = disambiguateO0(code);
           input.value = fixed;
           // IMPORTANT: non forziamo la spunta di "Corrispondenza esatta". Rispettiamo lo stato dell'utente.
-          if (typeof window.doSearch === 'function'){ window.doSearch(); }
-          else if (typeof doSearch === 'function'){ doSearch(); }
+          if (typeof window.doSearch === 'function') { window.doSearch(); }
+else if (typeof doSearch === 'function') { doSearch(); }
+else { document.getElementById('btnSearch')?.click(); }
         }
         els.status.textContent = "Trovato: " + code;
         setTimeout(stopOcr, 300);
