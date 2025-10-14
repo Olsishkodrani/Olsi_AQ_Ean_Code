@@ -971,7 +971,7 @@ async function readFileAsArrayBuffer(file) {
 </script>
 <!-- ==== /Scanner barcode ==== -->
 
-<!-- ==== OCR Scansione testo (ART.CODE) ==== -->
+<!-- ==== OCR Scansione testo (ART.CODE) con profilo "lettere" ==== -->
 <script>
 (() => {
   const els = {};
@@ -985,7 +985,7 @@ async function readFileAsArrayBuffer(file) {
     modal.innerHTML = `
       <div class="sheet">
         <div class="rowtop">
-          <div class="tiny">Inquadra l'etichetta con <strong>ART.CODE:</strong> e tienila ferma</div>
+          <div class="tiny">Inquadra l'etichetta con <strong>ART.CODE:</strong></div>
           <button id="btnOcrClose" class="secondary" type="button">Chiudi</button>
         </div>
         <div class="scanViewport">
@@ -1014,6 +1014,40 @@ async function readFileAsArrayBuffer(file) {
     els.modal.classList.remove('open');
     els.modal.setAttribute('aria-hidden','true');
     els.status.textContent = '';
+  }
+
+  // Correzione ambiguità tarata su codici *alfabetici* (lettere prevalenti)
+  function normalizeAmbiguous(code){
+    let c = (code||'').toUpperCase();
+    // conteggio
+    const digits = (c.match(/[0-9]/g)||[]).length;
+    const letters = (c.match(/[A-Z]/g)||[]).length;
+
+    // regole helper "tra lettere"
+    const betweenLetters0 = /(?<=[A-Z])0(?=[A-Z])/g; // 0 → O tra lettere
+    const betweenLetters1 = /(?<=[A-Z])[1Il|](?=[A-Z])/g; // 1/I/l/| → I tra lettere
+    const betweenLetters5 = /(?<=[A-Z])5(?=[A-Z])/g; // 5 → S tra lettere
+    const betweenLetters8 = /(?<=[A-Z])8(?=[A-Z])/g; // 8 → B tra lettere
+
+    if (letters >= digits){
+      // Modalità LETTERE: privilegia le lettere, converti cifre ambigue quando sono "tra lettere"
+      c = c.replace(betweenLetters0, 'O');
+      c = c.replace(betweenLetters1, 'I');
+      c = c.replace(betweenLetters5, 'S');
+      c = c.replace(betweenLetters8, 'B');
+      // ai bordi adiacenti a una lettera: 0 => O e 1/I/l/| => I
+      c = c.replace(/(?<=^[A-Z])0|0(?=[A-Z]$)/g, 'O');
+      c = c.replace(/(?<=^[A-Z])[1Il|]|[1Il|](?=[A-Z]$)/g, 'I');
+      // NON trasformiamo O→0 o I→1 in questo profilo per evitare falsi positivi
+    } else {
+      // Modalità NUMERICA: prevalgono le cifre (comportamento precedente)
+      c = c.replace(/(?<=\d)O(?=\d)/g, '0');
+      c = c.replace(/[O]/g, '0');
+      c = c.replace(/[IL|]/g, '1');
+      c = c.replace(/(?<=\d)S(?=\d)/g, '5');
+      c = c.replace(/(?<=\d)B(?=\d)/g, '8');
+    }
+    return c;
   }
 
   let _stream = null;
@@ -1057,7 +1091,7 @@ async function readFileAsArrayBuffer(file) {
       els.status.textContent = "Inquadra la dicitura ART.CODE:… sto leggendo.";
       _running = true;
       if (_ocrTimer){ clearInterval(_ocrTimer); }
-      _ocrTimer = setInterval(captureAndOcr, 1200);
+      _ocrTimer = setInterval(captureAndOcr, 1100);
     } catch (e){
       console.error("OCR start error", e);
       els.status.textContent = (e && e.message) ? e.message : "Errore nell'avvio dell'OCR";
@@ -1088,23 +1122,27 @@ async function readFileAsArrayBuffer(file) {
       const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
       let found = null;
       for (const l of lines){
-        const m = l.match(/art\.?\s*code\s*:\s*(.+)$/i);
+        const m = l.match(/art\\.?\\s*code\\s*:\\s*(.+)$/i);
         if (m){
           found = m[1].trim();
           break;
         }
       }
       if (found){
-        let code = found.replace(/\s+/g, ' ').trim();
+        let code = found.replace(/\\s+/g, ' ').trim();
         code = code.replace(/^[\\s\\-_.:/]+|[\\s\\-_.:/]+$/g, '');
+        const corrected = normalizeAmbiguous(code);
+        const finalCode = corrected;
+
         const input = document.getElementById('eanInput');
         if (input){
-          input.value = code;
-          // IMPORTANT: non forziamo la spunta di "Corrispondenza esatta". Rispettiamo lo stato dell'utente.
+          input.value = finalCode;
+          // Rispettiamo la spunta "Corrispondenza esatta"
           if (typeof window.doSearch === 'function'){ window.doSearch(); }
           else if (typeof doSearch === 'function'){ doSearch(); }
         }
-        els.status.textContent = "Trovato: " + code;
+        const mode = ((finalCode.match(/[A-Z]/g)||[]).length >= (finalCode.match(/[0-9]/g)||[]).length) ? 'lettere' : 'numerico';
+        els.status.textContent = "Trovato ("+mode+"): " + finalCode;
         setTimeout(stopOcr, 300);
       } else {
         els.status.textContent = "Nessuna riga 'ART.CODE:' trovata. Continua a tenere fermo…";
