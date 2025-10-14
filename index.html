@@ -1165,13 +1165,74 @@ input.value = fixed;
 
 // Heuristic to fix common OCR confusions between letter 'O' and digit '0'
 function disambiguateO0(s){
-  if (!s) return s;
-  s = String(s).toUpperCase();
-  // Prefer 0 when 'O' is adjacent to a digit or before a hyphen+digit
-  s = s.replace(/(\d)O(?=[\d\-._/:]|$)/g, "$10");
-  s = s.replace(/(^|[\-._/:])O(?=\d)/g, "$10");
-  s = s.replace(/(\d)O(?=-\d)/g, "$10");
-  s = s.replace(/O(?=-\d)/g, "0");
+
+  // Disambiguazione O↔0 contestuale (pensata per codici come 'MXQFLAS0-SUE-000')
+  // Regole:
+  // 1) 'O' tra due cifre => '0'
+  // 2) 'O' adiacente a una cifra (prima o dopo) => '0'
+  // 3) Se esiste almeno un segmento puramente numerico (>=2 cifre), allora
+  //    in altri segmenti alfanumerici converte una 'O' FINALE in '0' (es. ...ASO-000 -> ...AS0-000)
+  s = (s || '').toString();
+  const arr = s.split('');
+  const isDigit = ch => /[0-9]/.test(ch);
+  const isAlnum = ch => /[A-Za-z0-9]/.test(ch);
+
+  // Trova i segmenti alfanumerici preservando separatori
+  const parts = [];
+  let i = 0;
+  while (i < arr.length){
+    if (isAlnum(arr[i])){
+      let j = i;
+      while (j < arr.length && isAlnum(arr[j])) j++;
+      parts.push({type:'alnum', start:i, end:j-1});
+      i = j;
+    } else {
+      let j = i;
+      while (j < arr.length && !isAlnum(arr[j])) j++;
+      parts.push({type:'sep', start:i, end:j-1});
+      i = j;
+    }
+  }
+
+  // Esiste un segmento puramente numerico (>=2 cifre)?
+  let hasPureNumeric = false;
+  for (const p of parts){
+    if (p.type === 'alnum'){
+      const token = s.slice(p.start, p.end+1);
+      if (/^\d{2,}$/.test(token)){ hasPureNumeric = true; break; }
+    }
+  }
+
+  // Passo 1-2: conversione locale per char
+  for (let k = 0; k < arr.length; k++){
+    const ch = arr[k];
+    if (ch === 'O' || ch === 'o'){
+      const prev = k>0 ? arr[k-1] : '';
+      const next = k<arr.length-1 ? arr[k+1] : '';
+      if ((prev && isDigit(prev)) || (next && isDigit(next))){
+        arr[k] = '0';
+      }
+    }
+  }
+
+  // Passo 3: trailing 'O' nei segmenti alfanumerici se c'è almeno un segmento numerico altrove
+  if (hasPureNumeric){
+    for (const p of parts){
+      if (p.type === 'alnum'){
+        const token = arr.slice(p.start, p.end+1).join('');
+        // se il token termina con O/o e NON contiene cifre, converti l'ultima O in 0
+        if (/[Oo]$/.test(token) && !/\d/.test(token)){
+          arr[p.end] = '0';
+        }
+      }
+    }
+  }
+
+  return arr.join('');
+
+}$/.test(replaced)) return replaced;
+
+  // Altrimenti lascia com'è
   return s;
 }
 </script>
