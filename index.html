@@ -1056,7 +1056,7 @@ async function readFileAsArrayBuffer(file) {
     closeModal();
   }
 
-  async function startOcr(){
+  async async function startOcr(){
     openModal("Avvio fotocamera…");
     try {
       await loadTesseract();
