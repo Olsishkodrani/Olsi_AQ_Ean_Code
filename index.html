@@ -1151,12 +1151,29 @@ async function readFileAsArrayBuffer(file) {
 // Heuristic to fix common OCR confusions between letter 'O' and digit '0'
 function disambiguateO0(s){
   if (!s) return s;
-  s = String(s).toUpperCase();
-  // Prefer 0 when 'O' is adjacent to a digit or before a hyphen+digit
-  s = s.replace(/(\d)O(?=[\d\-._/:]|$)/g, "$10");
-  s = s.replace(/(^|[\-._/:])O(?=\d)/g, "$10");
-  s = s.replace(/(\d)O(?=-\d)/g, "$10");
-  s = s.replace(/O(?=-\d)/g, "0");
+  // Uppercase and trim spaces
+  s = String(s).toUpperCase().replace(/\s+/g,'');
+  // Normalize dash variants to '-'
+  s = s.replace(/[\u2010-\u2015]/g, '-');
+  const digitCount = (s.match(/\d/g) || []).length;
+  const hasTrailingNumericSeg = /-\d{2,}(?:-|$)/.test(s);
+
+  // 1) Strong signals: 'O' near digits becomes '0'
+  // dOd -> d0d
+  s = s.replace(/(\d)O(?=\d)/g, "$10");
+  // dO  -> d0
+  s = s.replace(/(\d)O/g, "$10");
+  // Od  -> 0d
+  s = s.replace(/O(\d)/g, "0$1");
+
+  // 2) End-of-segment 'O' before '-' is usually a zero in these codes
+  if (hasTrailingNumericSeg || digitCount >= 2){
+    s = s.replace(/O(?=-)/g, "0");
+  }
+
+  // 3) Extra OCR fixes near digits
+  s = s.replace(/(\d)I/g, "$11").replace(/I(\d)/g, "1$1"); // I -> 1 when adjacent to digit
+  s = s.replace(/(\d)B/g, "$18").replace(/B(\d)/g, "8$1"); // B -> 8 when adjacent to digit
   return s;
 }
 </script>
