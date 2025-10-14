@@ -974,7 +974,6 @@ async function readFileAsArrayBuffer(file) {
 <!-- ==== OCR Scansione testo (ART.CODE) ==== -->
 <script>
 (() => {
-  // UI elements for OCR modal
   const els = {};
   function ensureModal(){
     if (els.modal) return;
@@ -1017,12 +1016,10 @@ async function readFileAsArrayBuffer(file) {
     els.status.textContent = '';
   }
 
-  // State
   let _stream = null;
   let _running = false;
   let _ocrBusy = false;
   let _ocrTimer = null;
-  let _tesseractLoaded = false;
 
   function loadTesseract(){
     return new Promise((resolve, reject) => {
@@ -1046,8 +1043,7 @@ async function readFileAsArrayBuffer(file) {
   async function startOcr(){
     openModal("Avvio fotocamera…");
     try {
-      const T = await loadTesseract();
-      _tesseractLoaded = true;
+      await loadTesseract();
       const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
       if (!hasMedia){
         els.status.textContent = "Questo browser non consente l'accesso alla fotocamera. Servono HTTPS o localhost.";
@@ -1060,8 +1056,6 @@ async function readFileAsArrayBuffer(file) {
       await els.video.play().catch(()=>{});
       els.status.textContent = "Inquadra la dicitura ART.CODE:… sto leggendo.";
       _running = true;
-
-      // periodic OCR
       if (_ocrTimer){ clearInterval(_ocrTimer); }
       _ocrTimer = setInterval(captureAndOcr, 1200);
     } catch (e){
@@ -1086,13 +1080,11 @@ async function readFileAsArrayBuffer(file) {
       const dataURL = els.canvas.toDataURL('image/png');
 
       els.status.textContent = "Elaborazione…";
-
       const { data } = await window.Tesseract.recognize(dataURL, 'eng', {
         tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .:-_/\\\\',
       });
 
       let text = (data && data.text) ? data.text : "";
-      // Normalizza e cerca linea ART.CODE
       const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
       let found = null;
       for (const l of lines){
@@ -1103,14 +1095,12 @@ async function readFileAsArrayBuffer(file) {
         }
       }
       if (found){
-        // Pulisci il codice: togli spazi multipli, mantieni alfanumerico + - _ / .
         let code = found.replace(/\s+/g, ' ').trim();
-        code = code.replace(/^[\s\-_.:/]+|[\s\-_.:/]+$/g, '');
-        // Inserisci nel campo di ricerca e avvia
+        code = code.replace(/^[\\s\\-_.:/]+|[\\s\\-_.:/]+$/g, '');
         const input = document.getElementById('eanInput');
         if (input){
           input.value = code;
-          try { document.getElementById('exact').checked = true; } catch(_){}
+          // IMPORTANT: non forziamo la spunta di "Corrispondenza esatta". Rispettiamo lo stato dell'utente.
           if (typeof window.doSearch === 'function'){ window.doSearch(); }
           else if (typeof doSearch === 'function'){ doSearch(); }
         }
@@ -1128,7 +1118,6 @@ async function readFileAsArrayBuffer(file) {
   }
 
   function wire(){
-    // Button hookup
     const btn = document.getElementById('btnOcrScan');
     if (btn){
       btn.addEventListener('click', startOcr);
